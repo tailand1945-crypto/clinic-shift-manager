@@ -1,0 +1,22 @@
+{
+  "name": "Shift Manager - クリニック シフト管理",
+  "short_name": "Shift Manager",
+  "description": "クリニックスタッフ向けシフト管理Webアプリ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F6F8FB",
+  "theme_color": "#1B2A4A",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
