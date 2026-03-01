@@ -1,10 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { supabase, isSupabaseConfigured } from "../lib/supabase";
 
 // ====================================================================
-//  クリニック シフト管理 Web アプリ
+//  クリニック シフト管理 Web アプリ v2.0
 //  Next.js + Supabase 対応 / メールリンクでログイン / レスポンシブ
+//  - Supabase接続時: リアル認証 + データベース
+//  - Supabase未接続時: デモモードで動作
 // ====================================================================
 
 // --- Design Tokens ---
@@ -217,27 +220,63 @@ function Empty({ icon, title, sub }) {
 }
 
 // ====================================================================
-//  Login Screen
+//  Login Screen (Supabase対応)
 // ====================================================================
 
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, onSupabaseLogin }) {
   const [email, setEmail] = useState("");
   const [mode, setMode] = useState("magic"); // magic | password
   const [pw, setPw] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const useRealAuth = isSupabaseConfigured();
 
   // Demo: quick login
   const demoLogin = (staff) => { onLogin(staff); };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (mode === "magic") {
+    setError("");
+
+    if (useRealAuth && supabase) {
+      // --- Real Supabase Auth ---
       setLoading(true);
-      setTimeout(() => { setLoading(false); setSent(true); }, 1200);
+      try {
+        if (mode === "magic") {
+          const { error: authError } = await supabase.auth.signInWithOtp({
+            email,
+            options: {
+              emailRedirectTo: `${window.location.origin}/auth/callback`,
+            },
+          });
+          if (authError) throw authError;
+          setSent(true);
+        } else {
+          const { data, error: authError } = await supabase.auth.signInWithPassword({
+            email,
+            password: pw,
+          });
+          if (authError) throw authError;
+          // onSupabaseLogin will be triggered by auth state change
+        }
+      } catch (err) {
+        setError(err.message === "Invalid login credentials"
+          ? "メールアドレスまたはパスワードが正しくありません"
+          : err.message || "ログインに失敗しました");
+      } finally {
+        setLoading(false);
+      }
     } else {
-      const found = STAFF_DATA.find(s => s.email === email);
-      if (found) onLogin(found);
+      // --- Demo Mode ---
+      if (mode === "magic") {
+        setLoading(true);
+        setTimeout(() => { setLoading(false); setSent(true); }, 1200);
+      } else {
+        const found = STAFF_DATA.find(s => s.email === email);
+        if (found) onLogin(found);
+        else setError("デモモード: メールアドレスが見つかりません");
+      }
     }
   };
 
@@ -258,6 +297,12 @@ function LoginScreen({ onLogin }) {
           }}>📋</div>
           <h1 style={{ fontSize:26, fontWeight:800, color:"#fff", margin:"0 0 4px" }}>Shift Manager</h1>
           <p style={{ fontSize:13, color:"rgba(255,255,255,0.5)", margin:0 }}>クリニック スタッフ シフト管理</p>
+          {!useRealAuth && (
+            <div style={{ fontSize:10, color:T.amber, background:"rgba(230,168,23,0.15)",
+              padding:"4px 12px", borderRadius:12, display:"inline-block", marginTop:8 }}>
+              🧪 デモモード
+            </div>
+          )}
         </div>
 
         {/* Login Card */}
@@ -273,7 +318,7 @@ function LoginScreen({ onLogin }) {
                 <strong style={{color:"#fff"}}>{email}</strong> にログインリンクを送信しました。<br/>
                 メールを確認してリンクをクリックしてください。
               </div>
-              <button onClick={() => setSent(false)} style={{
+              <button onClick={() => { setSent(false); setError(""); }} style={{
                 marginTop:20, background:"none", border:"1px solid rgba(255,255,255,0.2)",
                 color:"rgba(255,255,255,0.7)", padding:"8px 20px", borderRadius:8,
                 fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:FONT,
@@ -285,7 +330,7 @@ function LoginScreen({ onLogin }) {
               <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:10,
                 padding:3, marginBottom:20 }}>
                 {[["magic","マジックリンク"],["password","パスワード"]].map(([k,label]) => (
-                  <button key={k} type="button" onClick={() => setMode(k)} style={{
+                  <button key={k} type="button" onClick={() => { setMode(k); setError(""); }} style={{
                     flex:1, padding:"8px", borderRadius:8, fontSize:12, fontWeight:600,
                     border:"none", cursor:"pointer", fontFamily:FONT, transition:"all 0.2s",
                     background: mode===k ? "rgba(255,255,255,0.12)" : "transparent",
@@ -293,6 +338,14 @@ function LoginScreen({ onLogin }) {
                   }}>{label}</button>
                 ))}
               </div>
+
+              {/* Error Message */}
+              {error && (
+                <div style={{ background:"rgba(232,98,92,0.15)", border:"1px solid rgba(232,98,92,0.3)",
+                  borderRadius:8, padding:"8px 12px", marginBottom:14, fontSize:12, color:"#FF8A85" }}>
+                  ⚠️ {error}
+                </div>
+              )}
 
               {/* Email */}
               <label style={{ display:"block", marginBottom:14 }}>
@@ -1259,7 +1312,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
       </Card>
 
       <Btn variant="danger" onClick={onLogout} style={{ width:"100%" }}>ログアウト</Btn>
-      <div style={{ textAlign:"center", fontSize:11, color:T.textDim, marginTop:12 }}>Version 1.0.0</div>
+      <div style={{ textAlign:"center", fontSize:11, color:T.textDim, marginTop:12 }}>Version 2.0.0 {isSupabaseConfigured() ? "🟢 Supabase接続済" : "🟡 デモモード"}</div>
     </div>
   );
 }
@@ -1300,9 +1353,76 @@ function MoreMenu({ user, onNav }) {
 
 export default function ShiftManagerWebApp() {
   const [user, setUser] = useState(null);
+  const [authUser, setAuthUser] = useState(null); // Supabase auth user
   const [page, setPage] = useState("home");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Check Supabase auth session on mount
+  useEffect(() => {
+    if (isSupabaseConfigured() && supabase) {
+      // Get initial session
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          setAuthUser(session.user);
+          loadStaffProfile(session.user.email);
+        }
+        setAuthLoading(false);
+      });
+
+      // Listen for auth changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+            setAuthUser(session.user);
+            loadStaffProfile(session.user.email);
+          } else if (event === 'SIGNED_OUT') {
+            setAuthUser(null);
+            setUser(null);
+          }
+        }
+      );
+
+      return () => subscription.unsubscribe();
+    } else {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  // Load staff profile from Supabase
+  const loadStaffProfile = async (email) => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('email', email)
+        .single();
+      if (data && !error) {
+        setUser({
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          pos: data.position,
+          role: data.role,
+          night: data.night_ok,
+        });
+      } else {
+        // Staff profile not found - use basic info
+        setUser({
+          id: 'new',
+          name: email.split('@')[0],
+          email: email,
+          pos: 'ns',
+          role: 'staff',
+          night: false,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load staff profile:', err);
+    }
+  };
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -1311,10 +1431,33 @@ export default function ShiftManagerWebApp() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
+  // Loading state
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
+        background:`linear-gradient(135deg, ${T.navy} 0%, #263B5E 50%, #1E3250 100%)`,
+        fontFamily:FONT,
+      }}>
+        <div style={{ textAlign:"center", color:"#fff" }}>
+          <div style={{ fontSize:48, marginBottom:16 }}>📋</div>
+          <div style={{ fontSize:16, fontWeight:600 }}>読み込み中...</div>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) return <LoginScreen onLogin={setUser} />;
 
   const handleNav = (p) => setPage(p);
-  const handleLogout = () => { setUser(null); setPage("home"); };
+  const handleLogout = async () => {
+    if (isSupabaseConfigured() && supabase) {
+      await supabase.auth.signOut();
+    }
+    setUser(null);
+    setAuthUser(null);
+    setPage("home");
+  };
   const handleSwitch = (s) => { setUser(s); setPage("home"); };
 
   const renderPage = () => {
