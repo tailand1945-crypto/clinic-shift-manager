@@ -979,37 +979,136 @@ function StaffPage({ user }) {
   );
 }
 
-function SwapPage() {
+function SwapPage({ user }) {
   const [tab, setTab] = useState(0);
-  const swaps = [
-    { id:1, from:"高橋 太郎", to:"鈴木 花子", day:"4/12", fromShift:"night", toShift:"day", status:"pending", reason:"家庭の事情" },
-    { id:2, from:"佐藤 健一", to:"小林 さくら", day:"4/18", fromShift:"late", toShift:"morning", status:"accepted", reason:"" },
-  ];
+  const [swaps, setSwaps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ target_id:'', requester_date:'', target_date:'', reason:'' });
+  const [staffList, setStaffList] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadData = async () => {
+    if (!supabase) return;
+    setLoading(true);
+    try {
+      const { data: spData } = await supabase.from('staff_profiles').select('id, last_name, first_name');
+      setStaffList(spData || []);
+      const { data: exData } = await supabase.from('shift_exchanges').select('*').order('created_at', { ascending: false });
+      if (exData) {
+        const enriched = exData.map(ex => ({
+          ...ex,
+          requesterName: spData?.find(s => s.id === ex.requester_id) ? spData.find(s => s.id === ex.requester_id).last_name + ' ' + spData.find(s => s.id === ex.requester_id).first_name : '不明',
+          targetName: spData?.find(s => s.id === ex.target_id) ? spData.find(s => s.id === ex.target_id).last_name + ' ' + spData.find(s => s.id === ex.target_id).first_name : '不明',
+        }));
+        setSwaps(enriched);
+      }
+    } catch(err) { console.error(err); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const handleSubmit = async () => {
+    if (!form.target_id || !form.requester_date || !form.target_date) { setError('必須項目を入力してください'); return; }
+    setSaving(true); setError('');
+    try {
+      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+      const { error: err } = await supabase.from('shift_exchanges').insert({
+        clinic_id: clinicData.id,
+        requester_id: user.id,
+        target_id: form.target_id,
+        requester_date: form.requester_date,
+        target_date: form.target_date,
+        reason: form.reason,
+        status: 'pending',
+      });
+      if (err) throw err;
+      setShowForm(false); setForm({ target_id:'', requester_date:'', target_date:'', reason:'' });
+      loadData();
+    } catch(err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const handleApprove = async (id, approved) => {
+    try {
+      await supabase.from('shift_exchanges').update({ status: approved ? 'approved' : 'rejected' }).eq('id', id);
+      loadData();
+    } catch(err) { console.error(err); }
+  };
+
+  const incoming = swaps.filter(s => s.target_id === user.id);
+  const outgoing = swaps.filter(s => s.requester_id === user.id);
+  const displayed = tab === 0 ? incoming : outgoing;
+
+  const statusLabel = (s) => s === 'pending' ? '承認待ち' : s === 'approved' ? '承認済み' : '却下';
+  const statusColor = (s) => s === 'pending' ? T.amber : s === 'approved' ? T.teal : T.coral;
+  const statusBg = (s) => s === 'pending' ? T.amberSoft : s === 'approved' ? T.tealSoft : T.coralSoft;
+
   return (
     <div style={{ padding:20, maxWidth:700 }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>🔄 シフト交換</h2>
-        <div style={{ flex:1 }}/><Btn variant="primary" size="sm" icon="➕">交換リクエスト</Btn>
+        <div style={{ flex:1 }}/>
+        <Btn variant="primary" size="sm" icon="➕" onClick={() => setShowForm(p => !p)}>交換リクエスト</Btn>
       </div>
+      {showForm && (
+        <Card style={{ marginBottom:16, padding:16, borderLeft:`3px solid ${T.blue}` }}>
+          <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>新しい交換リクエスト</h3>
+          {error && <div style={{ fontSize:12, color:T.coral, marginBottom:8 }}>⚠️ {error}</div>}
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <div>
+              <label style={{ fontSize:12, color:T.textSub }}>交換相手</label>
+              <select value={form.target_id} onChange={e => setForm(p=>({...p, target_id:e.target.value}))}
+                style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}>
+                <option value="">選択してください</option>
+                {staffList.filter(s => s.id !== user.id).map(s => (
+                  <option key={s.id} value={s.id}>{s.last_name} {s.first_name}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <div style={{ flex:1 }}>
+                <label style={{ fontSize:12, color:T.textSub }}>自分のシフト日</label>
+                <input type="date" value={form.requester_date} onChange={e => setForm(p=>({...p, requester_date:e.target.value}))}
+                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
+              </div>
+              <div style={{ flex:1 }}>
+                <label style={{ fontSize:12, color:T.textSub }}>相手のシフト日</label>
+                <input type="date" value={form.target_date} onChange={e => setForm(p=>({...p, target_date:e.target.value}))}
+                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:T.textSub }}>理由（任意）</label>
+              <input type="text" value={form.reason} onChange={e => setForm(p=>({...p, reason:e.target.value}))} placeholder="例: 家庭の事情"
+                style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <Btn variant="secondary" onClick={() => setShowForm(false)}>キャンセル</Btn>
+              <Btn variant="primary" onClick={handleSubmit} disabled={saving} style={{ flex:1 }}>{saving ? '送信中...' : '送信する'}</Btn>
+            </div>
+          </div>
+        </Card>
+      )}
       <div style={{ display:"flex", gap:0, marginBottom:16, borderBottom:`1px solid ${T.border}` }}>
         {["受信","送信済み"].map((l,i) => (
           <button key={i} onClick={()=>setTab(i)} style={{ padding:"10px 20px", border:"none", background:"none", cursor:"pointer", borderBottom: tab===i?`3px solid ${T.blue}`:"3px solid transparent", color: tab===i?T.text:T.textDim, fontSize:13, fontWeight:tab===i?700:500, fontFamily:FONT }}>{l}</button>
         ))}
       </div>
-      {swaps.map(sw => (
+      {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
+       displayed.length === 0 ? <Empty icon="🔄" title="リクエストなし" sub="交換リクエストはありません" /> :
+       displayed.map(sw => (
         <Card key={sw.id} style={{ marginBottom:10, padding:16 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-            <span style={{ fontSize:14, fontWeight:700 }}>{sw.from} → {sw.to}</span>
-            <span style={{ fontSize:10, fontWeight:700, padding:"3px 10px", borderRadius:20, background: sw.status==="pending"?T.amberSoft:T.tealSoft, color: sw.status==="pending"?T.amber:T.teal }}>{sw.status==="pending"?"承認待ち":"承認済み"}</span>
+            <span style={{ fontSize:14, fontWeight:700 }}>{sw.requesterName} → {sw.targetName}</span>
+            <span style={{ fontSize:10, fontWeight:700, padding:"3px 10px", borderRadius:20, background:statusBg(sw.status), color:statusColor(sw.status) }}>{statusLabel(sw.status)}</span>
           </div>
-          <div style={{ display:"flex", gap:8, alignItems:"center", fontSize:12, color:T.textSub }}>
-            <span>{sw.day}</span><ShiftBadge type={sw.fromShift} /> <span>→</span> <ShiftBadge type={sw.toShift} />
-          </div>
+          <div style={{ fontSize:12, color:T.textSub }}>{sw.requester_date} ⇄ {sw.target_date}</div>
           {sw.reason && <div style={{ fontSize:12, color:T.textDim, marginTop:6 }}>理由: {sw.reason}</div>}
-          {sw.status==="pending" && (
+          {sw.status === 'pending' && tab === 0 && (
             <div style={{ display:"flex", gap:8, marginTop:10 }}>
-              <Btn size="sm" variant="danger">却下</Btn>
-              <Btn size="sm" variant="success">承認</Btn>
+              <Btn size="sm" variant="danger" onClick={() => handleApprove(sw.id, false)}>却下</Btn>
+              <Btn size="sm" variant="success" onClick={() => handleApprove(sw.id, true)}>承認</Btn>
             </div>
           )}
         </Card>
@@ -1207,7 +1306,7 @@ export default function ShiftManagerWebApp() {
       case "request":  return <RequestPage user={user} />;
       case "generate": return <GeneratePage user={user} onNav={setPage} />;
       case "staff":    return <StaffPage user={user} />;
-      case "swap":     return <SwapPage />;
+      case "swap":     return <SwapPage user={user} />;
       case "notif":    return <NotifPage />;
       case "settings": return <SettingsPage user={user} onSwitch={handleSwitch} onLogout={handleLogout} />;
       case "more":     return <MoreMenu user={user} onNav={setPage} />;
