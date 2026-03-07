@@ -1644,4 +1644,4 @@ export default function ShiftManagerWebApp() {
       </div>
     </div>
   );
-}
+}　
