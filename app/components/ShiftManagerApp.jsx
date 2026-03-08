@@ -534,7 +534,7 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
   const todayD = new Date().getDate();
   const isCur = new Date().getMonth()+1===month;
   const canEdit = user.role==="admin"||user.role==="manager";
-  const posMap = { doctor:'doctor', nurse:'nurse', receptionist:'clerk', technician:'assistant', other:'assistant' };
+  const posMap = { doctor:'doctor', doctor_ped:'doctor_ped', doctor_int:'doctor_int', doctor_derm:'doctor_derm', doctor_ortho:'doctor_ortho', nurse:'nurse', pt:'pt', ot:'ot', trainer:'trainer', lab:'lab', receptionist:'clerk', clerk:'clerk', technician:'assistant', assistant:'assistant', other:'assistant' };
   const filtered = filterPos ? staffList.filter(s => s.pos===filterPos) : staffList;
 
   useEffect(() => {
@@ -839,7 +839,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
         const enriched = rData.map(r => ({
           ...r,
           staffName: r.staff_profiles ? r.staff_profiles.last_name + ' ' + r.staff_profiles.first_name : '不明',
-          pos: { doctor:'doctor', nurse:'nurse', receptionist:'clerk', technician:'assistant' }[r.staff_profiles?.position] || 'nurse',
+          pos: { doctor:'doctor', doctor_ped:'doctor_ped', doctor_int:'doctor_int', doctor_derm:'doctor_derm', doctor_ortho:'doctor_ortho', nurse:'nurse', pt:'pt', ot:'ot', trainer:'trainer', lab:'lab', receptionist:'clerk', clerk:'clerk', technician:'assistant', assistant:'assistant' }[r.staff_profiles?.position] || 'nurse',
         }));
         setRequests(enriched);
         const pending = enriched.filter(r=>r.status==='pending').length;
@@ -1252,7 +1252,7 @@ function StaffPage({ user }) {
       if (error) throw error;
       setShowAdd(false); setAddForm({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
       const { data } = await supabase.from('staff_profiles').select('*').order('position');
-      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position==='doctor'?'doctor':s.position==='nurse'?'nurse':s.position==='receptionist'?'clerk':'assistant', role:s.role, email:s.email||'', night:s.night_ok||false })));
+      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
     } catch(err) { setAddError(err.message); } finally { setAddSaving(false); }
   };
 
@@ -1261,7 +1261,7 @@ function StaffPage({ user }) {
     const load = async () => {
       try {
         const { data } = await supabase.from('staff_profiles').select('*').order('position');
-        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position==='doctor'?'doctor':s.position==='nurse'?'nurse':s.position==='receptionist'?'clerk':s.position==='technician'?'assistant':'assistant', role:s.role, email:s.email||'', night:s.night_ok||false })));
+        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
       } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
     };
     load();
@@ -1311,7 +1311,7 @@ function StaffPage({ user }) {
               <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>名</label><input value={addForm.first_name} onChange={e=>setAddForm(p=>({...p,first_name:e.target.value}))} placeholder="花子" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>職種</label><select value={addForm.position} onChange={e=>setAddForm(p=>({...p,position:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="doctor">医師</option><option value="nurse">看護師</option><option value="receptionist">事務</option><option value="technician">助手</option></select></div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>職種</label><select value={addForm.position} onChange={e=>setAddForm(p=>({...p,position:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="doctor">医師</option><option value="doctor_ped">医師：小児科</option><option value="doctor_int">医師：内科</option><option value="doctor_derm">医師：皮膚科</option><option value="doctor_ortho">医師：整形外科</option><option value="nurse">看護師</option><option value="pt">PT</option><option value="ot">OT</option><option value="trainer">スポーツトレーナー</option><option value="lab">検査技師</option><option value="assistant">助手</option><option value="clerk">事務</option></select></div>
               <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>権限</label><select value={addForm.role} onChange={e=>setAddForm(p=>({...p,role:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="staff">スタッフ</option><option value="manager">マネージャー</option><option value="admin">管理者</option></select></div>
             </div>
             <div><label style={{ fontSize:12, color:T.textSub }}>メール（任意）</label><input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
@@ -1570,7 +1570,7 @@ export default function ShiftManagerWebApp() {
     try {
       const { data, error } = await supabase.from('staff_profiles').select('*').eq('auth_user_id', uid).single();
       if (data && !error) {
-        const posMap = { doctor:'doctor', nurse:'nurse', receptionist:'clerk', technician:'assistant', other:'assistant' };
+        const posMap = { doctor:'doctor', doctor_ped:'doctor_ped', doctor_int:'doctor_int', doctor_derm:'doctor_derm', doctor_ortho:'doctor_ortho', nurse:'nurse', pt:'pt', ot:'ot', trainer:'trainer', lab:'lab', receptionist:'clerk', clerk:'clerk', technician:'assistant', assistant:'assistant', other:'assistant' };
         setUser({ id:data.id, name:data.last_name+' '+data.first_name, email:data.email||'', pos:posMap[data.position]||'nurse', role:data.user_role, night:data.can_work_night });
       } else {
         const { data: { user: authUser } } = await supabase.auth.getUser();
