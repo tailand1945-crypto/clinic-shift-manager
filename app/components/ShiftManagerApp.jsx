@@ -32,10 +32,18 @@ const SHIFTS = {
 };
 
 const POSITIONS = {
-  doctor:    { l:"医師",   c:"#E8625C", bg:"#FDECEB" },
-  nurse:     { l:"看護師", c:"#3B7DDD", bg:"#E8F0FE" },
-  assistant: { l:"助手",   c:"#0FA68E", bg:"#E6F9F5" },
-  clerk:     { l:"事務",   c:"#E6A817", bg:"#FFF8E1" },
+  doctor:        { l:"医師",           c:"#E8625C", bg:"#FDECEB" },
+  doctor_ped:    { l:"医師：小児科",   c:"#E8625C", bg:"#FDECEB" },
+  doctor_int:    { l:"医師：内科",     c:"#C0392B", bg:"#FADBD8" },
+  doctor_derm:   { l:"医師：皮膚科",   c:"#A93226", bg:"#F9EBEA" },
+  doctor_ortho:  { l:"医師：整形外科", c:"#922B21", bg:"#F5B7B1" },
+  nurse:         { l:"看護師",         c:"#3B7DDD", bg:"#E8F0FE" },
+  pt:            { l:"PT",             c:"#7C3AED", bg:"#EDE9FE" },
+  ot:            { l:"OT",             c:"#6D28D9", bg:"#EDE9FE" },
+  trainer:       { l:"スポーツトレーナー", c:"#059669", bg:"#D1FAE5" },
+  lab:           { l:"検査技師",       c:"#0891B2", bg:"#CFFAFE" },
+  assistant:     { l:"助手",           c:"#0FA68E", bg:"#E6F9F5" },
+  clerk:         { l:"事務",           c:"#E6A817", bg:"#FFF8E1" },
 };
 
 const ROLES = { admin:"管理者", manager:"マネージャー", staff:"スタッフ" };
