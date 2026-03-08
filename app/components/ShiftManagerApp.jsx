@@ -315,7 +315,7 @@ function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCo
       <div style={{ padding:collapsed?"16px 10px":"20px 20px", borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📋</div>
-          {!collapsed && <div><div style={{ fontSize:15, fontWeight:800, color:"#fff" }}>Shift Manager</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>World Wing 三宮</div></div>}
+          {!collapsed && <div><div style={{ fontSize:15, fontWeight:800, color:"#fff" }}>Shift Manager</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>丸岡内科小児科クリニック</div></div>}
         </div>
       </div>
       <button onClick={onToggle} style={{ position:"absolute", right:-12, top:30, width:24, height:24, borderRadius:12, background:T.white, border:`1px solid ${T.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, color:T.textDim, boxShadow:T.shadow, zIndex:20 }}>{collapsed ? "→" : "←"}</button>
@@ -1642,7 +1642,7 @@ export default function ShiftManagerWebApp() {
         {isMobile && (
           <div style={{ padding:"10px 16px", background:T.navy, display:"flex", alignItems:"center", gap:10, paddingTop:"max(10px, env(safe-area-inset-top))" }}>
             <div style={{ width:32, height:32, borderRadius:8, background:"rgba(255,255,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>📋</div>
-            <div style={{ flex:1 }}><div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>Shift Manager</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.6)" }}>World Wing 三宮</div></div>
+            <div style={{ flex:1 }}><div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>Shift Manager</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.6)" }}>丸岡内科小児科クリニック</div></div>
             <button onClick={() => setPage("notif")} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, padding:4, position:"relative" }}>🔔</button>
             <div style={{ width:30, height:30, borderRadius:10, background:POSITIONS[user.pos]?.bg||T.surface, color:POSITIONS[user.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700 }}>{user.name[0]}</div>
           </div>
