@@ -54,6 +54,18 @@ const STAFF_DATA = [
   { id:"s10",name:"加藤 翔太",   pos:"nurse",     role:"staff",   night:true,  email:"kato@clinic.com" },
 ];
 
+// Demo shift requests for mock mode
+const DEMO_REQUESTS = [
+  { id:"r1", staff_id:"s3", staffName:"鈴木 花子", pos:"nurse", request_date:"2026-05-03", preferred_shift:"off", priority:3, status:"pending", reason:"家族の用事", target_month:"2026-05", created_at:"2026-04-10T09:00:00Z" },
+  { id:"r2", staff_id:"s4", staffName:"高橋 太郎", pos:"nurse", request_date:"2026-05-05", preferred_shift:"day", priority:2, status:"pending", reason:"", target_month:"2026-05", created_at:"2026-04-10T10:30:00Z" },
+  { id:"r3", staff_id:"s5", staffName:"伊藤 由美", pos:"assistant", request_date:"2026-05-10", preferred_shift:"morning", priority:1, status:"approved", reason:"", target_month:"2026-05", created_at:"2026-04-09T14:00:00Z" },
+  { id:"r4", staff_id:"s6", staffName:"渡辺 誠", pos:"assistant", request_date:"2026-05-12", preferred_shift:"off", priority:3, status:"rejected", reason:"育児のため", target_month:"2026-05", created_at:"2026-04-09T16:00:00Z" },
+  { id:"r5", staff_id:"s7", staffName:"山本 恵子", pos:"clerk", request_date:"2026-05-15", preferred_shift:"paid", priority:2, status:"pending", reason:"有給消化", target_month:"2026-05", created_at:"2026-04-11T08:00:00Z" },
+  { id:"r6", staff_id:"s9", staffName:"小林 さくら", pos:"nurse", request_date:"2026-05-20", preferred_shift:"late", priority:1, status:"pending", reason:"", target_month:"2026-05", created_at:"2026-04-11T11:00:00Z" },
+  { id:"r7", staff_id:"s10", staffName:"加藤 翔太", pos:"nurse", request_date:"2026-05-22", preferred_shift:"night", priority:2, status:"pending", reason:"", target_month:"2026-05", created_at:"2026-04-12T09:00:00Z" },
+  { id:"r8", staff_id:"s3", staffName:"鈴木 花子", pos:"nurse", request_date:"2026-05-25", preferred_shift:"day", priority:1, status:"pending", reason:"", target_month:"2026-05", created_at:"2026-04-12T14:00:00Z" },
+];
+
 function genShifts(y, m) {
   const days = new Date(y, m, 0).getDate();
   const out = {};
@@ -69,13 +81,6 @@ function genShifts(y, m) {
   });
   return out;
 }
-
-const NOTIFS = [
-  { id:1, title:"シフト公開", body:"2026年4月のシフトが公開されました", time:"3時間前", read:false, icon:"📅" },
-  { id:2, title:"交換リクエスト", body:"高橋さんから4/12の交換リクエストが届いています", time:"昨日", read:false, icon:"🔄" },
-  { id:3, title:"提出リマインダー", body:"5月の希望シフト提出期限まであと3日です", time:"2日前", read:true, icon:"⏰" },
-  { id:4, title:"シフト変更", body:"4/15のシフトが「日勤」→「遅番」に変更されました", time:"3日前", read:true, icon:"✏️" },
-];
 
 function getDIM(y,m) { return new Date(y,m,0).getDate(); }
 function getDow(y,m,d) { return new Date(y,m-1,d).getDay(); }
@@ -112,6 +117,19 @@ function RoleBadge({ role }) {
   return (
     <span style={{ fontSize:9, fontWeight:700, color:c, background:bg,
       padding:"2px 6px", borderRadius:4, fontFamily:FONT }}>{ROLES[role]}</span>
+  );
+}
+
+function StatusBadge({ status }) {
+  const map = {
+    pending:  { l:"承認待ち", c:T.amber,  bg:T.amberSoft },
+    approved: { l:"承認済み", c:T.teal,   bg:T.tealSoft  },
+    rejected: { l:"却下",     c:T.coral,  bg:T.coralSoft },
+  };
+  const s = map[status] || map.pending;
+  return (
+    <span style={{ fontSize:10, fontWeight:700, color:s.c, background:s.bg,
+      padding:"3px 10px", borderRadius:20, fontFamily:FONT, whiteSpace:"nowrap" }}>{s.l}</span>
   );
 }
 
@@ -172,7 +190,10 @@ function Empty({ icon, title, sub }) {
   );
 }
 
-function LoginScreen({ onLogin, onSupabaseLogin }) {
+// ─────────────────────────────────────────────
+// LOGIN
+// ─────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [mode, setMode] = useState("magic");
   const [pw, setPw] = useState("");
@@ -181,140 +202,75 @@ function LoginScreen({ onLogin, onSupabaseLogin }) {
   const [error, setError] = useState("");
   const useRealAuth = isSupabaseConfigured();
 
-  const demoLogin = (staff) => { onLogin(staff); };
-
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
+    e.preventDefault(); setError("");
     if (useRealAuth && supabase) {
       setLoading(true);
       try {
         if (mode === "magic") {
-          const { error: authError } = await supabase.auth.signInWithOtp({
-            email,
-            options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-          });
+          const { error: authError } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: `${window.location.origin}/auth/callback` } });
           if (authError) throw authError;
           setSent(true);
         } else {
-          const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password: pw });
+          const { error: authError } = await supabase.auth.signInWithPassword({ email, password: pw });
           if (authError) throw authError;
         }
       } catch (err) {
-        setError(err.message === "Invalid login credentials"
-          ? "メールアドレスまたはパスワードが正しくありません"
-          : err.message || "ログインに失敗しました");
-      } finally {
-        setLoading(false);
-      }
+        setError(err.message === "Invalid login credentials" ? "メールアドレスまたはパスワードが正しくありません" : err.message || "ログインに失敗しました");
+      } finally { setLoading(false); }
     } else {
-      if (mode === "magic") {
-        setLoading(true);
-        setTimeout(() => { setLoading(false); setSent(true); }, 1200);
-      } else {
-        const found = STAFF_DATA.find(s => s.email === email);
-        if (found) onLogin(found);
-        else setError("デモモード: メールアドレスが見つかりません");
-      }
+      if (mode === "magic") { setLoading(true); setTimeout(() => { setLoading(false); setSent(true); }, 1200); }
+      else { const found = STAFF_DATA.find(s => s.email === email); if (found) onLogin(found); else setError("デモ: メールアドレスが見つかりません"); }
     }
   };
 
   return (
-    <div style={{
-      minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
-      background:`linear-gradient(135deg, ${T.navy} 0%, #263B5E 50%, #1E3250 100%)`,
-      fontFamily:FONT, padding:20,
-    }}>
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:`linear-gradient(135deg, ${T.navy} 0%, #263B5E 50%, #1E3250 100%)`, fontFamily:FONT, padding:20 }}>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
-          <div style={{
-            width:64, height:64, borderRadius:16, background:"rgba(255,255,255,0.1)",
-            display:"inline-flex", alignItems:"center", justifyContent:"center",
-            fontSize:28, marginBottom:12, backdropFilter:"blur(10px)",
-            border:"1px solid rgba(255,255,255,0.1)",
-          }}>📋</div>
+          <div style={{ width:64, height:64, borderRadius:16, background:"rgba(255,255,255,0.1)", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:28, marginBottom:12, backdropFilter:"blur(10px)", border:"1px solid rgba(255,255,255,0.1)" }}>📋</div>
           <h1 style={{ fontSize:26, fontWeight:800, color:"#fff", margin:"0 0 4px" }}>Shift Manager</h1>
           <p style={{ fontSize:13, color:"rgba(255,255,255,0.5)", margin:0 }}>クリニック スタッフ シフト管理</p>
-          {!useRealAuth && (
-            <div style={{ fontSize:10, color:T.amber, background:"rgba(230,168,23,0.15)",
-              padding:"4px 12px", borderRadius:12, display:"inline-block", marginTop:8 }}>🧪 デモモード</div>
-          )}
+          {!useRealAuth && <div style={{ fontSize:10, color:T.amber, background:"rgba(230,168,23,0.15)", padding:"4px 12px", borderRadius:12, display:"inline-block", marginTop:8 }}>🧪 デモモード</div>}
         </div>
-        <div style={{
-          background:"rgba(255,255,255,0.06)", borderRadius:20, padding:28,
-          backdropFilter:"blur(20px)", border:"1px solid rgba(255,255,255,0.08)",
-        }}>
+        <div style={{ background:"rgba(255,255,255,0.06)", borderRadius:20, padding:28, backdropFilter:"blur(20px)", border:"1px solid rgba(255,255,255,0.08)" }}>
           {sent ? (
             <div style={{ textAlign:"center", padding:"16px 0" }}>
               <div style={{ fontSize:48, marginBottom:12 }}>✉️</div>
               <div style={{ fontSize:17, fontWeight:700, color:"#fff", marginBottom:6 }}>メールを送信しました</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,0.6)", lineHeight:1.7 }}>
-                <strong style={{color:"#fff"}}>{email}</strong> にログインリンクを送信しました。<br/>メールを確認してリンクをクリックしてください。
-              </div>
-              <button onClick={() => { setSent(false); setError(""); }} style={{
-                marginTop:20, background:"none", border:"1px solid rgba(255,255,255,0.2)",
-                color:"rgba(255,255,255,0.7)", padding:"8px 20px", borderRadius:8,
-                fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:FONT,
-              }}>別のメールアドレスで試す</button>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,0.6)", lineHeight:1.7 }}><strong style={{color:"#fff"}}>{email}</strong> にログインリンクを送信しました。</div>
+              <button onClick={() => { setSent(false); setError(""); }} style={{ marginTop:20, background:"none", border:"1px solid rgba(255,255,255,0.2)", color:"rgba(255,255,255,0.7)", padding:"8px 20px", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:FONT }}>別のアドレスで試す</button>
             </div>
           ) : (
             <form onSubmit={handleSubmit}>
               <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:10, padding:3, marginBottom:20 }}>
                 {[["magic","マジックリンク"],["password","パスワード"]].map(([k,label]) => (
-                  <button key={k} type="button" onClick={() => { setMode(k); setError(""); }} style={{
-                    flex:1, padding:"8px", borderRadius:8, fontSize:12, fontWeight:600,
-                    border:"none", cursor:"pointer", fontFamily:FONT, transition:"all 0.2s",
-                    background: mode===k ? "rgba(255,255,255,0.12)" : "transparent",
-                    color: mode===k ? "#fff" : "rgba(255,255,255,0.4)",
-                  }}>{label}</button>
+                  <button key={k} type="button" onClick={() => { setMode(k); setError(""); }} style={{ flex:1, padding:"8px", borderRadius:8, fontSize:12, fontWeight:600, border:"none", cursor:"pointer", fontFamily:FONT, transition:"all 0.2s", background:mode===k?"rgba(255,255,255,0.12)":"transparent", color:mode===k?"#fff":"rgba(255,255,255,0.4)" }}>{label}</button>
                 ))}
               </div>
-              {error && (
-                <div style={{ background:"rgba(232,98,92,0.15)", border:"1px solid rgba(232,98,92,0.3)",
-                  borderRadius:8, padding:"8px 12px", marginBottom:14, fontSize:12, color:"#FF8A85" }}>
-                  ⚠️ {error}
-                </div>
-              )}
+              {error && <div style={{ background:"rgba(232,98,92,0.15)", border:"1px solid rgba(232,98,92,0.3)", borderRadius:8, padding:"8px 12px", marginBottom:14, fontSize:12, color:"#FF8A85" }}>⚠️ {error}</div>}
               <label style={{ display:"block", marginBottom:14 }}>
                 <span style={{ fontSize:11, fontWeight:600, color:"rgba(255,255,255,0.6)", display:"block", marginBottom:6 }}>メールアドレス</span>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@clinic.com"
-                  style={{ width:"100%", padding:"12px 14px", borderRadius:10, fontSize:14,
-                    border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.06)",
-                    color:"#fff", outline:"none", fontFamily:FONT, boxSizing:"border-box" }} />
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@clinic.com" style={{ width:"100%", padding:"12px 14px", borderRadius:10, fontSize:14, border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.06)", color:"#fff", outline:"none", fontFamily:FONT, boxSizing:"border-box" }} />
               </label>
               {mode === "password" && (
                 <label style={{ display:"block", marginBottom:14 }}>
                   <span style={{ fontSize:11, fontWeight:600, color:"rgba(255,255,255,0.6)", display:"block", marginBottom:6 }}>パスワード</span>
-                  <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="パスワードを入力"
-                    style={{ width:"100%", padding:"12px 14px", borderRadius:10, fontSize:14,
-                      border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.06)",
-                      color:"#fff", outline:"none", fontFamily:FONT, boxSizing:"border-box" }} />
+                  <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="パスワードを入力" style={{ width:"100%", padding:"12px 14px", borderRadius:10, fontSize:14, border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.06)", color:"#fff", outline:"none", fontFamily:FONT, boxSizing:"border-box" }} />
                 </label>
               )}
-              <button type="submit" disabled={!email || loading} style={{
-                width:"100%", padding:"13px", borderRadius:10, border:"none",
-                background: email ? `linear-gradient(135deg, ${T.blue}, ${T.teal})` : "rgba(255,255,255,0.1)",
-                color:"#fff", fontSize:14, fontWeight:700, cursor:email?"pointer":"default",
-                fontFamily:FONT, transition:"all 0.2s", opacity: loading?0.6:1,
-              }}>
+              <button type="submit" disabled={!email || loading} style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:email?`linear-gradient(135deg, ${T.blue}, ${T.teal})`:"rgba(255,255,255,0.1)", color:"#fff", fontSize:14, fontWeight:700, cursor:email?"pointer":"default", fontFamily:FONT, transition:"all 0.2s", opacity:loading?0.6:1 }}>
                 {loading ? "送信中..." : mode==="magic" ? "📩 ログインリンクを送信" : "ログイン"}
               </button>
             </form>
           )}
         </div>
-        <div style={{ marginTop:24, background:"rgba(255,255,255,0.04)", borderRadius:14,
-          padding:16, border:"1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ marginTop:24, background:"rgba(255,255,255,0.04)", borderRadius:14, padding:16, border:"1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ fontSize:11, fontWeight:600, color:"rgba(255,255,255,0.4)", marginBottom:10, textAlign:"center" }}>🧪 デモ: クイックログイン</div>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {STAFF_DATA.slice(0,4).map(s => (
-              <button key={s.id} onClick={() => demoLogin(s)} style={{
-                display:"flex", alignItems:"center", gap:10, padding:"8px 12px",
-                borderRadius:8, border:"1px solid rgba(255,255,255,0.08)",
-                background:"rgba(255,255,255,0.04)", cursor:"pointer", fontFamily:FONT, textAlign:"left",
-              }}>
-                <span style={{ width:32, height:32, borderRadius:8, fontSize:12, fontWeight:700,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  background:POSITIONS[s.pos].bg, color:POSITIONS[s.pos].c }}>{s.name[0]}</span>
+              <button key={s.id} onClick={() => onLogin(s)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, border:"1px solid rgba(255,255,255,0.08)", background:"rgba(255,255,255,0.04)", cursor:"pointer", fontFamily:FONT, textAlign:"left" }}>
+                <span style={{ width:32, height:32, borderRadius:8, fontSize:12, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", background:POSITIONS[s.pos].bg, color:POSITIONS[s.pos].c }}>{s.name[0]}</span>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13, fontWeight:600, color:"#fff" }}>{s.name}</div>
                   <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>{POSITIONS[s.pos].l} • {ROLES[s.role]}</div>
@@ -329,11 +285,16 @@ function LoginScreen({ onLogin, onSupabaseLogin }) {
   );
 }
 
-function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle }) {
+// ─────────────────────────────────────────────
+// SIDEBAR
+// ─────────────────────────────────────────────
+function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCount }) {
+  const isManager = user.role === "admin" || user.role === "manager";
   const items = [
     { id:"home",     icon:"🏠", label:"ホーム" },
     { id:"shifts",   icon:"📊", label:"シフト表" },
     { id:"request",  icon:"📝", label:"希望提出" },
+    { id:"approval", icon:"✅", label:"申請承認", admin:true, badge: isManager ? pendingCount : 0 },
     { id:"generate", icon:"⚡", label:"自動生成", admin:true },
     { id:"staff",    icon:"👥", label:"スタッフ" },
     { id:"swap",     icon:"🔄", label:"シフト交換" },
@@ -342,92 +303,62 @@ function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle }) {
   ];
   const w = collapsed ? 68 : 240;
   return (
-    <div style={{ width:w, minWidth:w, height:"100vh", background:T.navy,
-      display:"flex", flexDirection:"column", transition:"width 0.25s ease", overflow:"hidden", position:"relative" }}>
+    <div style={{ width:w, minWidth:w, height:"100vh", background:T.navy, display:"flex", flexDirection:"column", transition:"width 0.25s ease", overflow:"hidden", position:"relative" }}>
       <div style={{ padding:collapsed?"16px 10px":"20px 20px", borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,0.1)",
-            display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📋</div>
-          {!collapsed && (
-            <div>
-              <div style={{ fontSize:15, fontWeight:800, color:"#fff" }}>Shift Manager</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>World Wing 三宮</div>
-            </div>
-          )}
+          <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📋</div>
+          {!collapsed && <div><div style={{ fontSize:15, fontWeight:800, color:"#fff" }}>Shift Manager</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>World Wing 三宮</div></div>}
         </div>
       </div>
-      <button onClick={onToggle} style={{
-        position:"absolute", right:-12, top:30, width:24, height:24, borderRadius:12,
-        background:T.white, border:`1px solid ${T.border}`, cursor:"pointer",
-        display:"flex", alignItems:"center", justifyContent:"center",
-        fontSize:10, color:T.textDim, boxShadow:T.shadow, zIndex:20,
-      }}>{collapsed ? "→" : "←"}</button>
+      <button onClick={onToggle} style={{ position:"absolute", right:-12, top:30, width:24, height:24, borderRadius:12, background:T.white, border:`1px solid ${T.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, color:T.textDim, boxShadow:T.shadow, zIndex:20 }}>{collapsed ? "→" : "←"}</button>
       <nav style={{ flex:1, padding:"12px 8px", overflowY:"auto" }}>
         {items.map(item => {
           const isActive = active === item.id;
-          const isLocked = item.admin && user.role !== "admin";
+          const isLocked = item.admin && user.role !== "admin" && user.role !== "manager";
           return (
             <button key={item.id} onClick={() => onNav(item.id)} title={collapsed ? item.label : ""}
-              style={{
-                width:"100%", display:"flex", alignItems:"center", gap:10,
-                padding: collapsed ? "10px" : "10px 14px",
-                borderRadius:10, border:"none", cursor:"pointer",
-                background: isActive ? "rgba(59,125,221,0.15)" : "transparent",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.5)",
-                fontSize:13, fontWeight: isActive ? 700 : 500, marginBottom:2,
-                transition:"all 0.15s", fontFamily:FONT, textAlign:"left",
-                justifyContent: collapsed ? "center" : "flex-start", opacity: isLocked ? 0.4 : 1,
-              }}>
+              style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:collapsed?"10px":"10px 14px", borderRadius:10, border:"none", cursor:"pointer", background:isActive?"rgba(59,125,221,0.15)":"transparent", color:isActive?"#fff":"rgba(255,255,255,0.5)", fontSize:13, fontWeight:isActive?700:500, marginBottom:2, transition:"all 0.15s", fontFamily:FONT, textAlign:"left", justifyContent:collapsed?"center":"flex-start", opacity:isLocked?0.4:1 }}>
               <span style={{ fontSize:16, flexShrink:0 }}>{item.icon}</span>
               {!collapsed && <span style={{ flex:1 }}>{item.label}</span>}
               {!collapsed && isLocked && <span style={{ fontSize:10 }}>🔒</span>}
               {!collapsed && item.badge > 0 && (
-                <span style={{ fontSize:9, fontWeight:700, color:"#fff", background:T.coral, padding:"1px 5px", borderRadius:8 }}>{item.badge}</span>
+                <span style={{ fontSize:9, fontWeight:700, color:"#fff", background:item.id==="approval"?T.teal:T.coral, padding:"1px 5px", borderRadius:8 }}>{item.badge}</span>
               )}
             </button>
           );
         })}
       </nav>
-      <div style={{ padding: collapsed ? "12px 8px" : "14px 16px", borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+      <div style={{ padding:collapsed?"12px 8px":"14px 16px", borderTop:"1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{
-            width:34, height:34, borderRadius:10, flexShrink:0,
-            background:POSITIONS[user.pos]?.bg || T.surface, color:POSITIONS[user.pos]?.c || T.textMid,
-            display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700,
-          }}>{user.name[0]}</div>
-          {!collapsed && (
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:12, fontWeight:600, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>{ROLES[user.role]}</div>
-            </div>
-          )}
-          {!collapsed && (
-            <button onClick={onLogout} title="ログアウト" style={{ background:"none", border:"none", cursor:"pointer", fontSize:14, color:"rgba(255,255,255,0.3)", padding:4 }}>↗</button>
-          )}
+          <div style={{ width:34, height:34, borderRadius:10, flexShrink:0, background:POSITIONS[user.pos]?.bg||T.surface, color:POSITIONS[user.pos]?.c||T.textMid, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>{user.name[0]}</div>
+          {!collapsed && <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>{ROLES[user.role]}</div></div>}
+          {!collapsed && <button onClick={onLogout} title="ログアウト" style={{ background:"none", border:"none", cursor:"pointer", fontSize:14, color:"rgba(255,255,255,0.3)", padding:4 }}>↗</button>}
         </div>
       </div>
     </div>
   );
 }
 
-function MobileNav({ user, active, onNav }) {
+// ─────────────────────────────────────────────
+// MOBILE NAV
+// ─────────────────────────────────────────────
+function MobileNav({ user, active, onNav, pendingCount }) {
+  const isManager = user.role === "admin" || user.role === "manager";
   const items = [
     { id:"home",    icon:"🏠", label:"ホーム" },
     { id:"shifts",  icon:"📅", label:"シフト" },
     { id:"request", icon:"📝", label:"希望" },
-    { id:"swap",    icon:"🔄", label:"交換" },
+    { id:"approval",icon:"✅", label:"承認", badge: isManager ? pendingCount : 0 },
     { id:"more",    icon:"☰",  label:"メニュー" },
   ];
   return (
     <nav style={{ display:"flex", background:T.white, borderTop:`1px solid ${T.border}`, paddingBottom:"env(safe-area-inset-bottom, 8px)", boxShadow:"0 -2px 12px rgba(0,0,0,0.08)" }}>
       {items.map(it => (
-        <button key={it.id} onClick={() => onNav(it.id)} style={{
-          flex:1, padding:"10px 4px 6px", border:"none", background:"none", cursor:"pointer",
-          display:"flex", flexDirection:"column", alignItems:"center", gap:3,
-          color: active===it.id ? T.blue : T.textDim, fontFamily:FONT,
-          position:"relative",
-        }}>
-          <span style={{ fontSize:20, lineHeight:1 }}>{it.icon}</span>
+        <button key={it.id} onClick={() => onNav(it.id)} style={{ flex:1, padding:"10px 4px 6px", border:"none", background:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, color:active===it.id?T.blue:T.textDim, fontFamily:FONT, position:"relative" }}>
+          <span style={{ fontSize:20, lineHeight:1, position:"relative" }}>
+            {it.icon}
+            {it.badge > 0 && <span style={{ position:"absolute", top:-4, right:-6, fontSize:8, fontWeight:700, background:T.teal, color:"#fff", borderRadius:8, padding:"1px 4px", lineHeight:1 }}>{it.badge}</span>}
+          </span>
           <span style={{ fontSize:10, fontWeight:active===it.id?700:500 }}>{it.label}</span>
           {active===it.id && <div style={{ position:"absolute", bottom:0, left:"50%", transform:"translateX(-50%)", width:24, height:3, borderRadius:2, background:T.blue }}/>}
         </button>
@@ -437,29 +368,26 @@ function MobileNav({ user, active, onNav }) {
 }
 
 function MoreMenuPage({ user, onNav, onLogout }) {
+  const isManager = user.role === "admin" || user.role === "manager";
   const items = [
-    { id:"generate", icon:"⚡", label:"自動生成", sub:"シフトを自動生成" },
-    { id:"staff",    icon:"👥", label:"スタッフ管理", sub:"メンバー一覧・追加" },
-    { id:"notif",    icon:"🔔", label:"通知", sub:"お知らせを確認" },
-    { id:"settings", icon:"⚙️", label:"設定", sub:"アカウント設定" },
-  ];
+    { id:"approval", icon:"✅", label:"申請承認",   sub:"シフト希望の審査・承認", show: isManager },
+    { id:"generate", icon:"⚡", label:"自動生成",   sub:"シフトを自動生成",        show: isManager },
+    { id:"staff",    icon:"👥", label:"スタッフ管理", sub:"メンバー一覧・追加",     show: true },
+    { id:"swap",     icon:"🔄", label:"シフト交換",  sub:"交換リクエスト管理",      show: true },
+    { id:"notif",    icon:"🔔", label:"通知",        sub:"お知らせを確認",          show: true },
+    { id:"settings", icon:"⚙️", label:"設定",        sub:"アカウント設定",          show: true },
+  ].filter(i => i.show);
   return (
     <div style={{ padding:20 }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
         <div style={{ width:48, height:48, borderRadius:14, background:POSITIONS[user.pos]?.bg||T.surface, color:POSITIONS[user.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700 }}>{user.name[0]}</div>
-        <div>
-          <div style={{ fontSize:15, fontWeight:700 }}>{user.name}</div>
-          <div style={{ fontSize:12, color:T.textSub }}><PosBadge pos={user.pos} /></div>
-        </div>
+        <div><div style={{ fontSize:15, fontWeight:700 }}>{user.name}</div><div style={{ fontSize:12, color:T.textSub, marginTop:2 }}><PosBadge pos={user.pos} /></div></div>
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {items.map(it => (
           <button key={it.id} onClick={() => onNav(it.id)} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderRadius:12, border:`1px solid ${T.border}`, background:T.white, cursor:"pointer", fontFamily:FONT, textAlign:"left" }}>
             <span style={{ fontSize:22, width:32, textAlign:"center" }}>{it.icon}</span>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:14, fontWeight:600, color:T.text }}>{it.label}</div>
-              <div style={{ fontSize:12, color:T.textSub }}>{it.sub}</div>
-            </div>
+            <div style={{ flex:1 }}><div style={{ fontSize:14, fontWeight:600, color:T.text }}>{it.label}</div><div style={{ fontSize:12, color:T.textSub }}>{it.sub}</div></div>
             <span style={{ color:T.textDim, fontSize:16 }}>›</span>
           </button>
         ))}
@@ -472,11 +400,12 @@ function MoreMenuPage({ user, onNav, onLogout }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// HOME
+// ─────────────────────────────────────────────
 function HomePage({ user, onNav }) {
   const today = new Date();
-  const d = today.getDate();
-  const m = today.getMonth()+1;
-  const year = today.getFullYear();
+  const d = today.getDate(), m = today.getMonth()+1, year = today.getFullYear();
   const [todayShiftType, setTodayShiftType] = useState('off');
   const [stats, setStats] = useState({ workDays:0, nightCount:0, paidLeft:12, reflectRate:0 });
   const [upcomingShifts, setUpcomingShifts] = useState([]);
@@ -491,62 +420,38 @@ function HomePage({ user, onNav }) {
       try {
         const todayStr = `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const startMonth = `${year}-${String(m).padStart(2,'0')}-01`;
-        const endMonth = `${year}-${String(m).padStart(2,'0')}-${String(new Date(year,m,0).getDate()).padStart(2,'0')}`;
-
-        // Today's shift
         if (user.id !== 'new') {
           const { data: todayS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).eq('shift_date', todayStr).single();
           if (todayS) setTodayShiftType(todayS.shift_type);
-
-          // Monthly stats
           const { data: monthS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).gte('shift_date', startMonth).lte('shift_date', todayStr);
           if (monthS) {
             const workDays = monthS.filter(s => s.shift_type !== 'off' && s.shift_type !== 'paid').length;
             const nightCount = monthS.filter(s => s.shift_type === 'night').length;
-            const total = monthS.length;
             const { data: reqData } = await supabase.from('shift_requests').select('status').eq('staff_id', user.id);
             const approved = reqData ? reqData.filter(r => r.status === 'approved').length : 0;
-            const reflectRate = total > 0 ? Math.round((approved / Math.max(total,1)) * 100) : 94;
-            setStats({ workDays, nightCount, paidLeft:12, reflectRate: reflectRate || 94 });
+            const reflectRate = monthS.length > 0 ? Math.round((approved / Math.max(monthS.length,1)) * 100) : 94;
+            setStats({ workDays, nightCount, paidLeft:12, reflectRate: reflectRate||94 });
           }
-
-          // Upcoming shifts
           const { data: upcoming } = await supabase.from('shifts').select('shift_date, shift_type').eq('staff_id', user.id).gt('shift_date', todayStr).order('shift_date').limit(5);
           if (upcoming) setUpcomingShifts(upcoming);
         }
-
-        // Today's attendance count
         const { data: todayAll } = await supabase.from('shifts').select('id').eq('shift_date', todayStr).neq('shift_type','off').neq('shift_type','paid');
         if (todayAll) setTodayCount(todayAll.length);
-
-        // Pending exchanges
         const { data: exData } = await supabase.from('shift_exchanges').select('id').eq('status','pending');
         if (exData) setPendingExchanges(exData.length);
-
-        // Notifications
         const { data: nData } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false }).limit(5);
-        if (nData && nData.length > 0) {
-          setNotifs(nData);
-          setUnreadNotifs(nData.filter(n => !n.read).length);
-        } else {
-          setUnreadNotifs(0);
-        }
+        if (nData && nData.length > 0) { setNotifs(nData); setUnreadNotifs(nData.filter(n => !n.read).length); }
       } catch(err) { console.error(err); }
     };
     load();
   }, [user.id]);
 
   const todayShift = SHIFTS[todayShiftType] || SHIFTS['off'];
-
   return (
     <div style={{ padding:24, maxWidth:1000 }}>
       <div style={{ marginBottom:24 }}>
-        <h1 style={{ fontSize:24, fontWeight:800, color:T.text, margin:"0 0 4px" }}>
-          おはようございます、{user.name.split(" ")[0]}さん
-        </h1>
-        <p style={{ fontSize:13, color:T.textSub, margin:0 }}>
-          {year}年{m}月{d}日（{DOW[today.getDay()]}）
-        </p>
+        <h1 style={{ fontSize:24, fontWeight:800, color:T.text, margin:"0 0 4px" }}>おはようございます、{user.name.split(" ")[0]}さん</h1>
+        <p style={{ fontSize:13, color:T.textSub, margin:0 }}>{year}年{m}月{d}日（{DOW[today.getDay()]}）</p>
       </div>
       <Card style={{ background:`linear-gradient(135deg, ${T.navy} 0%, ${T.navySoft} 100%)`, border:"none", marginBottom:20, padding:24 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:16 }}>
@@ -575,17 +480,16 @@ function HomePage({ user, onNav }) {
           {upcomingShifts.length === 0 ? <div style={{ fontSize:13, color:T.textDim, textAlign:'center', padding:20 }}>シフトがありません</div> :
           upcomingShifts.map((s, i) => {
             const fd = new Date(s.shift_date);
-            const t = s.shift_type;
             return (
-              <div key={s.shift_date} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderTop: i>0 ? `1px solid ${T.borderLight}` : "none" }}>
+              <div key={s.shift_date} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
                 <div style={{ width:40, textAlign:"center" }}>
-                  <div style={{ fontSize:10, fontWeight:600, color: fd.getDay()===0?T.coral:fd.getDay()===6?T.blue:T.textDim }}>{DOW[fd.getDay()]}</div>
+                  <div style={{ fontSize:10, fontWeight:600, color:fd.getDay()===0?T.coral:fd.getDay()===6?T.blue:T.textDim }}>{DOW[fd.getDay()]}</div>
                   <div style={{ fontSize:17, fontWeight:700 }}>{fd.getDate()}</div>
                 </div>
-                <ShiftBadge type={t} size="md" />
+                <ShiftBadge type={s.shift_type} size="md" />
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{SHIFTS[t]?.f || t}</div>
-                  <div style={{ fontSize:11, color:T.textDim }}>{SHIFTS[t]?.time || ''}</div>
+                  <div style={{ fontSize:13, fontWeight:600 }}>{SHIFTS[s.shift_type]?.f}</div>
+                  <div style={{ fontSize:11, color:T.textDim }}>{SHIFTS[s.shift_type]?.time}</div>
                 </div>
               </div>
             );
@@ -595,12 +499,11 @@ function HomePage({ user, onNav }) {
           <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>🔔 最近の通知</div>
           {notifs.length === 0 ? <div style={{ fontSize:13, color:T.textDim, textAlign:'center', padding:20 }}>通知はありません</div> :
           notifs.map((n, i) => (
-            <div key={n.id} style={{ display:"flex", gap:10, padding:"10px 0", borderTop: i>0 ? `1px solid ${T.borderLight}` : "none", opacity: n.read ? 0.6 : 1 }}>
+            <div key={n.id} style={{ display:"flex", gap:10, padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none", opacity:n.read?0.6:1 }}>
               <span style={{ fontSize:20 }}>{n.icon || '🔔'}</span>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:n.read?500:700, color:T.text }}>{n.title}</div>
+                <div style={{ fontSize:13, fontWeight:n.read?500:700 }}>{n.title}</div>
                 <div style={{ fontSize:12, color:T.textSub, marginTop:2 }}>{n.body}</div>
-                <div style={{ fontSize:10, color:T.textDim, marginTop:4 }}>{new Date(n.created_at).toLocaleDateString('ja-JP')}</div>
               </div>
               {!n.read && <div style={{ width:8, height:8, borderRadius:4, background:T.blue, marginTop:4 }}/>}
             </div>
@@ -611,6 +514,9 @@ function HomePage({ user, onNav }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// SHIFT TABLE
+// ─────────────────────────────────────────────
 function ShiftTablePage({ user, year=2026, month=4 }) {
   const [shifts, setShifts] = useState({});
   const [staffList, setStaffList] = useState(STAFF_DATA);
@@ -624,67 +530,41 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
   const filtered = filterPos ? staffList.filter(s => s.pos===filterPos) : staffList;
 
   useEffect(() => {
-    if (!supabase) {
-      setShifts(genShifts(year, month));
-      return;
-    }
+    if (!supabase) { setShifts(genShifts(year, month)); return; }
     const load = async () => {
       try {
-        // Load staff from DB
         const { data: spData } = await supabase.from('staff_profiles').select('*');
         if (spData && spData.length > 0) {
-          const mapped = spData.map(sp => ({
-            id: sp.id,
-            name: sp.last_name + ' ' + sp.first_name,
-            pos: posMap[sp.position] || 'nurse',
-            role: sp.user_role,
-            night: sp.can_work_night,
-            email: sp.email || '',
-          }));
+          const mapped = spData.map(sp => ({ id:sp.id, name:sp.last_name+' '+sp.first_name, pos:posMap[sp.position]||'nurse', role:sp.user_role, night:sp.can_work_night, email:sp.email||'' }));
           setStaffList(mapped);
-
-          // Load shifts
           const startDate = `${year}-${String(month).padStart(2,'0')}-01`;
           const endDate = `${year}-${String(month).padStart(2,'0')}-${String(getDIM(year,month)).padStart(2,'0')}`;
           const { data: shiftData } = await supabase.from('shifts').select('*').gte('shift_date', startDate).lte('shift_date', endDate);
-          
           const newShifts = {};
           mapped.forEach(s => { newShifts[s.id] = {}; });
-          if (shiftData && shiftData.length > 0) {
-            shiftData.forEach(row => {
-              const d = parseInt(row.shift_date.split('-')[2]);
-              if (newShifts[row.staff_id]) newShifts[row.staff_id][d] = row.shift_type;
-            });
-          }
+          if (shiftData) shiftData.forEach(row => { const d=parseInt(row.shift_date.split('-')[2]); if(newShifts[row.staff_id]) newShifts[row.staff_id][d]=row.shift_type; });
           setShifts(newShifts);
-        } else {
-          setShifts(genShifts(year, month));
-        }
-      } catch(err) { console.error(err); setShifts(genShifts(year, month)); }
+        } else { setShifts(genShifts(year, month)); }
+      } catch(err) { setShifts(genShifts(year, month)); }
     };
     load();
   }, [year, month]);
+
   const daySummary = useMemo(() => {
     const s = {};
-    for (let d=1; d<=days; d++) {
-      let c=0;
-      staffList.forEach(st => { const t=shifts[st.id]?.[d]; if(t&&t!=="off"&&t!=="paid") c++; });
-      s[d] = c;
-    }
+    for (let d=1; d<=days; d++) { let c=0; staffList.forEach(st => { const t=shifts[st.id]?.[d]; if(t&&t!=="off"&&t!=="paid") c++; }); s[d]=c; }
     return s;
   }, [shifts, days, staffList]);
+
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"16px 20px", background:T.white, borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-        <h2 style={{ fontSize:18, fontWeight:800, margin:0, color:T.text }}>📊 {year}年{month}月</h2>
+        <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>📊 {year}年{month}月</h2>
         <span style={{ fontSize:11, fontWeight:600, color:T.teal, background:T.tealSoft, padding:"3px 10px", borderRadius:20 }}>公開済み</span>
         <div style={{ flex:1 }} />
         <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
           <Btn size="sm" variant={!filterPos?"primary":"secondary"} onClick={() => setFilterPos(null)}>全員 ({STAFF_DATA.length})</Btn>
-          {Object.entries(POSITIONS).map(([k,p]) => {
-            const c = STAFF_DATA.filter(s=>s.pos===k).length;
-            return <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={() => setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l} ({c})</Btn>;
-          })}
+          {Object.entries(POSITIONS).map(([k,p]) => { const c=STAFF_DATA.filter(s=>s.pos===k).length; return <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={() => setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l} ({c})</Btn>; })}
         </div>
       </div>
       <div style={{ flex:1, overflow:"auto", position:"relative" }}>
@@ -692,22 +572,11 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
           <thead>
             <tr style={{ position:"sticky", top:0, zIndex:10, background:T.surface }}>
               <th style={{ position:"sticky", left:0, zIndex:12, background:T.surface, padding:"8px 10px", textAlign:"left", fontWeight:700, fontSize:11, color:T.textDim, borderBottom:`2px solid ${T.border}`, borderRight:`1px solid ${T.border}`, minWidth:120 }}>スタッフ</th>
-              {Array.from({length:days},(_,i)=>i+1).map(d => {
-                const dow = getDow(year,month,d);
-                const isT = isCur && d===todayD;
-                return (
-                  <th key={d} style={{ padding:"4px 2px", textAlign:"center", fontWeight:600, borderBottom:`2px solid ${T.border}`, borderRight:`1px solid ${T.borderLight}`, background: isT ? T.blueSoft : T.surface, minWidth:34 }}>
-                    <div style={{ fontSize:9, color:dow===0?T.coral:dow===6?T.blue:T.textDim }}>{DOW[dow]}</div>
-                    <div style={{ fontSize:12, fontWeight:isT?800:600, color:isT?T.blue:dow===0?T.coral:T.text }}>{d}</div>
-                  </th>
-                );
-              })}
+              {Array.from({length:days},(_,i)=>i+1).map(d => { const dow=getDow(year,month,d); const isT=isCur&&d===todayD; return <th key={d} style={{ padding:"4px 2px", textAlign:"center", fontWeight:600, borderBottom:`2px solid ${T.border}`, borderRight:`1px solid ${T.borderLight}`, background:isT?T.blueSoft:T.surface, minWidth:34 }}><div style={{ fontSize:9, color:dow===0?T.coral:dow===6?T.blue:T.textDim }}>{DOW[dow]}</div><div style={{ fontSize:12, fontWeight:isT?800:600, color:isT?T.blue:dow===0?T.coral:T.text }}>{d}</div></th>; })}
             </tr>
             <tr style={{ position:"sticky", top:46, zIndex:9, background:T.white }}>
               <td style={{ position:"sticky", left:0, zIndex:11, background:T.white, padding:"4px 10px", fontSize:10, fontWeight:600, color:T.textDim, borderBottom:`1px solid ${T.blue}30`, borderRight:`1px solid ${T.border}` }}>出勤数</td>
-              {Array.from({length:days},(_,i)=>i+1).map(d => (
-                <td key={d} style={{ textAlign:"center", padding:"4px 0", fontWeight:700, fontSize:10, color: daySummary[d]<5 ? T.coral : T.teal, background: daySummary[d]<5 ? T.coralSoft : T.white, borderBottom:`1px solid ${T.blue}30`, borderRight:`1px solid ${T.borderLight}` }}>{daySummary[d]}</td>
-              ))}
+              {Array.from({length:days},(_,i)=>i+1).map(d => <td key={d} style={{ textAlign:"center", padding:"4px 0", fontWeight:700, fontSize:10, color:daySummary[d]<5?T.coral:T.teal, background:daySummary[d]<5?T.coralSoft:T.white, borderBottom:`1px solid ${T.blue}30`, borderRight:`1px solid ${T.borderLight}` }}>{daySummary[d]}</td>)}
             </tr>
           </thead>
           <tbody>
@@ -720,17 +589,7 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
                     {staff.role==="admin" && <RoleBadge role="admin" />}
                   </div>
                 </td>
-                {Array.from({length:days},(_,i)=>i+1).map(d => {
-                  const t = shifts[staff.id]?.[d];
-                  const isT = isCur && d===todayD;
-                  const isSel = selectedCell?.s===staff.id && selectedCell?.d===d;
-                  return (
-                    <td key={d} style={{ textAlign:"center", padding:"3px 1px", borderBottom:`1px solid ${T.borderLight}`, borderRight:`1px solid ${T.borderLight}`, background: isSel ? T.blueSoft : isT ? `${T.blue}06` : "transparent", cursor: canEdit ? "pointer" : "default" }}
-                      onClick={canEdit ? () => setSelectedCell({s:staff.id,d}) : undefined}>
-                      <ShiftBadge type={t} selected={isSel} />
-                    </td>
-                  );
-                })}
+                {Array.from({length:days},(_,i)=>i+1).map(d => { const t=shifts[staff.id]?.[d]; const isT=isCur&&d===todayD; const isSel=selectedCell?.s===staff.id&&selectedCell?.d===d; return <td key={d} style={{ textAlign:"center", padding:"3px 1px", borderBottom:`1px solid ${T.borderLight}`, borderRight:`1px solid ${T.borderLight}`, background:isSel?T.blueSoft:isT?`${T.blue}06`:"transparent", cursor:canEdit?"pointer":"default" }} onClick={canEdit?()=>setSelectedCell({s:staff.id,d}):undefined}><ShiftBadge type={t} selected={isSel} /></td>; })}
               </tr>
             ))}
           </tbody>
@@ -738,30 +597,59 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
       </div>
       <div style={{ padding:"8px 16px", background:T.white, borderTop:`1px solid ${T.border}`, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
         <span style={{ fontSize:10, color:T.textDim, fontWeight:600 }}>凡例:</span>
-        {Object.entries(SHIFTS).map(([k,s]) => (
-          <span key={k} style={{ display:"inline-flex", alignItems:"center", gap:3, fontSize:10, color:T.textSub }}>
-            <span style={{ width:14, height:14, borderRadius:3, background:s.bg, color:s.c, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:700 }}>{s.l}</span>{s.f}
-          </span>
-        ))}
+        {Object.entries(SHIFTS).map(([k,s]) => <span key={k} style={{ display:"inline-flex", alignItems:"center", gap:3, fontSize:10, color:T.textSub }}><span style={{ width:14, height:14, borderRadius:3, background:s.bg, color:s.c, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:700 }}>{s.l}</span>{s.f}</span>)}
         <span style={{ marginLeft:"auto", fontSize:11, color:T.textDim }}>{canEdit ? "💡 セルをクリックして編集" : "閲覧のみ"}</span>
       </div>
     </div>
   );
 }
 
+// ─────────────────────────────────────────────
+// REQUEST PAGE（希望提出 + ステータス確認）
+// ─────────────────────────────────────────────
 function RequestPage({ user }) {
+  const [tab, setTab] = useState(0); // 0=提出, 1=ステータス確認
   const [sel, setSel] = useState({});
   const [pri, setPri] = useState({});
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [myRequests, setMyRequests] = useState([]);
+  const [reqLoading, setReqLoading] = useState(false);
   const year=2026, month=5;
-  const days = getDIM(year,month);
-  const toggle = (d,t) => {
-    setSel(p => { const n={...p}; if(n[d]===t) delete n[d]; else { n[d]=t; if(!pri[d]) setPri(pp=>({...pp,[d]:1})); } return n; });
-  };
+  const days = getDIM(year, month);
+
+  const toggle = (d,t) => setSel(p => { const n={...p}; if(n[d]===t) delete n[d]; else { n[d]=t; if(!pri[d]) setPri(pp=>({...pp,[d]:1})); } return n; });
   const cnt = Object.keys(sel).length;
   const offCnt = Object.values(sel).filter(v=>v==="off"||v==="paid").length;
+
+  // Load my submitted requests
+  useEffect(() => {
+    if (tab !== 1) return;
+    setReqLoading(true);
+    if (!supabase || user.id === 'new') {
+      // Demo data for current user
+      const myDemoRequests = DEMO_REQUESTS.filter(r => r.staff_id === user.id).slice(0, 6);
+      // If no demo data for this user, show sample
+      if (myDemoRequests.length === 0) {
+        setMyRequests([
+          { id:"r_demo1", request_date:"2026-05-03", preferred_shift:"off", priority:3, status:"approved", reason:"家族の用事", created_at:"2026-04-10T09:00:00Z" },
+          { id:"r_demo2", request_date:"2026-05-10", preferred_shift:"day", priority:2, status:"pending", reason:"", created_at:"2026-04-10T10:30:00Z" },
+          { id:"r_demo3", request_date:"2026-05-15", preferred_shift:"morning", priority:1, status:"rejected", reason:"早起きが得意", created_at:"2026-04-09T14:00:00Z" },
+        ]);
+      } else { setMyRequests(myDemoRequests); }
+      setReqLoading(false);
+      return;
+    }
+    const load = async () => {
+      try {
+        const { data } = await supabase.from('shift_requests').select('*').eq('staff_id', user.id).eq('target_month', `${year}-${String(month).padStart(2,'0')}`).order('request_date');
+        setMyRequests(data || []);
+      } catch(err) { console.error(err); }
+      finally { setReqLoading(false); }
+    };
+    load();
+  }, [tab, user.id]);
 
   const handleSubmit = async () => {
     setLoading(true); setError("");
@@ -769,79 +657,418 @@ function RequestPage({ user }) {
       if (supabase && user.id !== 'new') {
         const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
         const rows = Object.entries(sel).map(([d, shift]) => ({
-          clinic_id: clinicData.id,
-          staff_id: user.id,
+          clinic_id: clinicData.id, staff_id: user.id,
           request_date: `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`,
-          preferred_shift: shift,
-          priority: pri[d] || 1,
-          target_month: `${year}-${String(month).padStart(2,'0')}`,
-          status: 'pending',
+          preferred_shift: shift, priority: pri[d] || 1,
+          target_month: `${year}-${String(month).padStart(2,'0')}`, status: 'pending',
         }));
         const { error: err } = await supabase.from('shift_requests').upsert(rows, { onConflict: 'staff_id,request_date' });
         if (err) throw err;
       }
       setDone(true);
-    } catch(err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch(err) { setError(err.message); }
+    finally { setLoading(false); }
   };
+
+  const statusSummary = myRequests.reduce((acc, r) => { acc[r.status] = (acc[r.status]||0)+1; return acc; }, {});
 
   if (done) return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100%", padding:48, textAlign:"center" }}>
       <div style={{ fontSize:56, marginBottom:16 }}>✅</div>
       <h2 style={{ fontSize:22, fontWeight:800, margin:"0 0 8px" }}>提出完了！</h2>
       <p style={{ fontSize:14, color:T.textSub, lineHeight:1.7, margin:0 }}>{month}月の希望シフトを{cnt}日分提出しました。<br/>確定後にお知らせします。</p>
-      <Btn variant="secondary" onClick={() => { setDone(false); setSel({}); setPri({}); }} style={{ marginTop:20 }}>内容を修正する</Btn>
+      <div style={{ display:"flex", gap:8, marginTop:20 }}>
+        <Btn variant="secondary" onClick={() => { setDone(false); setSel({}); setPri({}); }}>修正する</Btn>
+        <Btn variant="primary" onClick={() => { setDone(false); setTab(1); }}>ステータス確認 →</Btn>
+      </div>
     </div>
   );
+
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"16px 20px", background:T.white, borderBottom:`1px solid ${T.border}` }}>
-        <h2 style={{ fontSize:18, fontWeight:800, margin:"0 0 4px" }}>📝 希望シフト提出</h2>
-        <p style={{ fontSize:12, color:T.textSub, margin:0 }}>{year}年{month}月分</p>
-      </div>
-      <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 20px", background:T.amberSoft, fontSize:12, fontWeight:600, color:"#92400E" }}>
-        <span>⏰ 提出期限: 4/20（月）</span><span>{cnt}日選択 / 休日{offCnt}日</span>
-      </div>
-      <div style={{ flex:1, overflow:"auto", padding:"8px 16px" }}>
-        {Array.from({length:days},(_,i)=>i+1).map(d => {
-          const dow = getDow(year,month,d);
-          const s = sel[d];
-          return (
-            <div key={d} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background: s ? T.white : "transparent", borderRadius:10, marginBottom:3, border: s ? `1.5px solid ${T.blue}20` : "1px solid transparent" }}>
-              <div style={{ width:36, textAlign:"center" }}>
-                <div style={{ fontSize:9, fontWeight:600, color:dow===0?T.coral:dow===6?T.blue:T.textDim }}>{DOW[dow]}</div>
-                <div style={{ fontSize:15, fontWeight:700, color:dow===0?T.coral:T.text }}>{d}</div>
-              </div>
-              <div style={{ display:"flex", gap:3 }}>
-                {Object.entries(SHIFTS).map(([k]) => <ShiftBadge key={k} type={k} selected={s===k} onClick={() => toggle(d,k)} />)}
-              </div>
-              {s && (
-                <button onClick={() => setPri(p=>({...p,[d]:((p[d]||1)%3)+1}))} style={{ marginLeft:"auto", background:"none", border:"none", cursor:"pointer", fontSize:12 }}>
-                  {Array.from({length:pri[d]||1}).map((_,i)=>(
-                    <span key={i} style={{color:(pri[d]||1)>=3?T.coral:(pri[d]||1)>=2?T.amber:T.textDim}}>★</span>
-                  ))}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ padding:"12px 20px", background:T.white, borderTop:`1px solid ${T.border}`, display:"flex", flexDirection:"column", gap:8 }}>
-        {error && <div style={{ fontSize:12, color:T.coral, background:T.coralSoft, padding:"6px 10px", borderRadius:6 }}>⚠️ {error}</div>}
-        <div style={{ display:"flex", gap:10 }}>
-          <Btn variant="secondary" onClick={() => {setSel({});setPri({});}}>リセット</Btn>
-          <Btn variant="primary" disabled={cnt===0||loading} onClick={handleSubmit} style={{ flex:1 }}>
-            {loading ? "送信中..." : `提出する（${cnt}日）`}
-          </Btn>
+        <h2 style={{ fontSize:18, fontWeight:800, margin:"0 0 12px" }}>📝 希望シフト</h2>
+        <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}` }}>
+          {["希望を提出", "提出済みを確認"].map((l,i) => (
+            <button key={i} onClick={() => setTab(i)} style={{ padding:"8px 18px", border:"none", background:"none", cursor:"pointer", borderBottom:tab===i?`3px solid ${T.blue}`:"3px solid transparent", color:tab===i?T.blue:T.textDim, fontSize:13, fontWeight:tab===i?700:500, fontFamily:FONT, transition:"all 0.15s" }}>{l}</button>
+          ))}
         </div>
       </div>
+
+      {tab === 0 && (
+        <>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 20px", background:T.amberSoft, fontSize:12, fontWeight:600, color:"#92400E" }}>
+            <span>⏰ 提出期限: 4/20（月）</span><span>{cnt}日選択 / 休日{offCnt}日</span>
+          </div>
+          <div style={{ flex:1, overflow:"auto", padding:"8px 16px" }}>
+            {Array.from({length:days},(_,i)=>i+1).map(d => {
+              const dow = getDow(year,month,d); const s = sel[d];
+              return (
+                <div key={d} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:s?T.white:"transparent", borderRadius:10, marginBottom:3, border:s?`1.5px solid ${T.blue}20`:"1px solid transparent" }}>
+                  <div style={{ width:36, textAlign:"center" }}>
+                    <div style={{ fontSize:9, fontWeight:600, color:dow===0?T.coral:dow===6?T.blue:T.textDim }}>{DOW[dow]}</div>
+                    <div style={{ fontSize:15, fontWeight:700, color:dow===0?T.coral:T.text }}>{d}</div>
+                  </div>
+                  <div style={{ display:"flex", gap:3 }}>
+                    {Object.entries(SHIFTS).map(([k]) => <ShiftBadge key={k} type={k} selected={s===k} onClick={() => toggle(d,k)} />)}
+                  </div>
+                  {s && (
+                    <button onClick={() => setPri(p=>({...p,[d]:((p[d]||1)%3)+1}))} style={{ marginLeft:"auto", background:"none", border:"none", cursor:"pointer", fontSize:12 }}>
+                      {Array.from({length:pri[d]||1}).map((_,i) => <span key={i} style={{color:(pri[d]||1)>=3?T.coral:(pri[d]||1)>=2?T.amber:T.textDim}}>★</span>)}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ padding:"12px 20px", background:T.white, borderTop:`1px solid ${T.border}`, display:"flex", flexDirection:"column", gap:8 }}>
+            {error && <div style={{ fontSize:12, color:T.coral, background:T.coralSoft, padding:"6px 10px", borderRadius:6 }}>⚠️ {error}</div>}
+            <div style={{ display:"flex", gap:10 }}>
+              <Btn variant="secondary" onClick={() => {setSel({});setPri({});}}>リセット</Btn>
+              <Btn variant="primary" disabled={cnt===0||loading} onClick={handleSubmit} style={{ flex:1 }}>{loading ? "送信中..." : `提出する（${cnt}日）`}</Btn>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === 1 && (
+        <div style={{ flex:1, overflow:"auto", padding:20 }}>
+          {/* Summary badges */}
+          <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+            <div style={{ padding:"10px 16px", borderRadius:10, background:T.amberSoft, textAlign:"center", minWidth:80 }}>
+              <div style={{ fontSize:20, fontWeight:800, color:T.amber, fontFamily:MONO }}>{statusSummary.pending||0}</div>
+              <div style={{ fontSize:10, color:T.amber, fontWeight:600 }}>承認待ち</div>
+            </div>
+            <div style={{ padding:"10px 16px", borderRadius:10, background:T.tealSoft, textAlign:"center", minWidth:80 }}>
+              <div style={{ fontSize:20, fontWeight:800, color:T.teal, fontFamily:MONO }}>{statusSummary.approved||0}</div>
+              <div style={{ fontSize:10, color:T.teal, fontWeight:600 }}>承認済み</div>
+            </div>
+            <div style={{ padding:"10px 16px", borderRadius:10, background:T.coralSoft, textAlign:"center", minWidth:80 }}>
+              <div style={{ fontSize:20, fontWeight:800, color:T.coral, fontFamily:MONO }}>{statusSummary.rejected||0}</div>
+              <div style={{ fontSize:10, color:T.coral, fontWeight:600 }}>却下</div>
+            </div>
+            <div style={{ padding:"10px 16px", borderRadius:10, background:T.surface, textAlign:"center", minWidth:80 }}>
+              <div style={{ fontSize:20, fontWeight:800, color:T.textMid, fontFamily:MONO }}>{myRequests.length}</div>
+              <div style={{ fontSize:10, color:T.textSub, fontWeight:600 }}>合計</div>
+            </div>
+          </div>
+
+          {reqLoading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
+           myRequests.length === 0 ? <Empty icon="📝" title="提出済みの希望はありません" sub="「希望を提出」タブから希望シフトを提出してください" /> : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {myRequests.map((r, i) => {
+                const dateObj = new Date(r.request_date);
+                const dow = dateObj.getDay();
+                return (
+                  <Card key={r.id} style={{ padding:"12px 16px" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                      <div style={{ width:44, textAlign:"center", flexShrink:0 }}>
+                        <div style={{ fontSize:10, fontWeight:600, color:dow===0?T.coral:dow===6?T.blue:T.textDim }}>{DOW[dow]}</div>
+                        <div style={{ fontSize:18, fontWeight:800, color:dow===0?T.coral:T.text }}>{dateObj.getDate()}</div>
+                        <div style={{ fontSize:9, color:T.textDim }}>{dateObj.getMonth()+1}/{dateObj.getDate()}</div>
+                      </div>
+                      <ShiftBadge type={r.preferred_shift} size="md" />
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:600 }}>{SHIFTS[r.preferred_shift]?.f}</div>
+                        {r.reason && <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>理由: {r.reason}</div>}
+                        <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
+                          {Array.from({length:r.priority||1}).map((_,j) => <span key={j} style={{ fontSize:10, color:r.priority>=3?T.coral:r.priority>=2?T.amber:T.textDim }}>★</span>)}
+                          <span style={{ fontSize:10, color:T.textDim }}>優先度{r.priority}</span>
+                        </div>
+                      </div>
+                      <StatusBadge status={r.status} />
+                    </div>
+                    {r.status === 'rejected' && r.reject_reason && (
+                      <div style={{ marginTop:8, padding:"6px 10px", background:T.coralSoft, borderRadius:6, fontSize:12, color:T.coral }}>
+                        却下理由: {r.reject_reason}
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────
+// ✅ APPROVAL PAGE（NEW!）
+// ─────────────────────────────────────────────
+function ApprovalPage({ user, onPendingCountChange }) {
+  const isManager = user.role === "admin" || user.role === "manager";
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState("pending");
+  const [filterMonth, setFilterMonth] = useState("2026-05");
+  const [filterPos, setFilterPos] = useState(null);
+  const [processing, setProcessing] = useState(null); // id being processed
+  const [rejectModal, setRejectModal] = useState(null); // { id, staffName, date }
+  const [rejectReason, setRejectReason] = useState("");
+  const [bulkSelected, setBulkSelected] = useState(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+
+  const loadRequests = async () => {
+    setLoading(true);
+    if (!supabase) {
+      // Demo data enriched with staff name/pos
+      const enriched = DEMO_REQUESTS.map(r => ({
+        ...r,
+        staffName: r.staffName || STAFF_DATA.find(s=>s.id===r.staff_id)?.name || '不明',
+        pos: r.pos || STAFF_DATA.find(s=>s.id===r.staff_id)?.pos || 'nurse',
+      }));
+      setRequests(enriched);
+      const pending = enriched.filter(r=>r.status==='pending').length;
+      onPendingCountChange?.(pending);
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data: rData } = await supabase.from('shift_requests').select('*, staff_profiles(id, last_name, first_name, position)').eq('target_month', filterMonth).order('request_date');
+      if (rData) {
+        const enriched = rData.map(r => ({
+          ...r,
+          staffName: r.staff_profiles ? r.staff_profiles.last_name + ' ' + r.staff_profiles.first_name : '不明',
+          pos: { doctor:'doctor', nurse:'nurse', receptionist:'clerk', technician:'assistant' }[r.staff_profiles?.position] || 'nurse',
+        }));
+        setRequests(enriched);
+        const pending = enriched.filter(r=>r.status==='pending').length;
+        onPendingCountChange?.(pending);
+      }
+    } catch(err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadRequests(); }, [filterMonth]);
+
+  const handleAction = async (id, action, reason = "") => {
+    setProcessing(id);
+    try {
+      const req = requests.find(r => r.id === id);
+      if (supabase && req) {
+        await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
+        // Notify staff
+        const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+        const notifBody = action === 'approved'
+          ? `${req.request_date}の希望シフト（${SHIFTS[req.preferred_shift]?.f}）が承認されました`
+          : `${req.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
+        await supabase.from('notifications').insert([{
+          clinic_id: clinicData.id, staff_id: req.staff_id,
+          title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
+          body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
+        }]);
+      }
+      // Update local state
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: action, reject_reason: reason } : r));
+      const newPending = requests.filter(r => r.id !== id && r.status === 'pending').length + (action === 'pending' ? 1 : 0);
+      onPendingCountChange?.(newPending);
+    } catch(err) { console.error(err); }
+    finally { setProcessing(null); setRejectModal(null); setRejectReason(""); }
+  };
+
+  const handleBulkApprove = async () => {
+    setBulkProcessing(true);
+    try {
+      for (const id of bulkSelected) {
+        await handleAction(id, 'approved');
+      }
+      setBulkSelected(new Set());
+    } finally { setBulkProcessing(false); }
+  };
+
+  const filtered = requests.filter(r => {
+    if (filterStatus !== 'all' && r.status !== filterStatus) return false;
+    if (filterPos && r.pos !== filterPos) return false;
+    return true;
+  });
+
+  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const approvedCount = requests.filter(r => r.status === 'approved').length;
+  const rejectedCount = requests.filter(r => r.status === 'rejected').length;
+
+  if (!isManager) return <Empty icon="🔒" title="管理者/マネージャー限定機能" sub="申請承認は管理者またはマネージャーアカウントでのみ利用できます。" />;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
+      {/* Header */}
+      <div style={{ padding:"16px 20px", background:T.white, borderBottom:`1px solid ${T.border}` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+          <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>✅ 申請承認管理</h2>
+          {pendingCount > 0 && <span style={{ fontSize:12, fontWeight:700, background:T.teal, color:"#fff", padding:"3px 10px", borderRadius:20 }}>{pendingCount}件 承認待ち</span>}
+          <div style={{ flex:1 }}/>
+          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
+            style={{ padding:"6px 10px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:12, fontFamily:FONT, background:T.white }}>
+            <option value="2026-04">2026年4月</option>
+            <option value="2026-05">2026年5月</option>
+            <option value="2026-06">2026年6月</option>
+          </select>
+        </div>
+        {/* Stats row */}
+        <div style={{ display:"flex", gap:8 }}>
+          {[
+            { label:"承認待ち", count:pendingCount, color:T.amber, bg:T.amberSoft, key:"pending" },
+            { label:"承認済み", count:approvedCount, color:T.teal, bg:T.tealSoft, key:"approved" },
+            { label:"却下",     count:rejectedCount, color:T.coral, bg:T.coralSoft, key:"rejected" },
+            { label:"合計",     count:requests.length, color:T.textMid, bg:T.surface, key:"all" },
+          ].map(s => (
+            <button key={s.key} onClick={() => setFilterStatus(s.key)} style={{ flex:1, padding:"10px 8px", borderRadius:10, border:`2px solid ${filterStatus===s.key ? s.color : 'transparent'}`, background:filterStatus===s.key ? s.bg : T.surface, cursor:"pointer", fontFamily:FONT, transition:"all 0.15s" }}>
+              <div style={{ fontSize:20, fontWeight:800, color:s.color, fontFamily:MONO }}>{s.count}</div>
+              <div style={{ fontSize:10, fontWeight:600, color:s.color }}>{s.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ padding:"10px 20px", background:T.bg, borderBottom:`1px solid ${T.border}`, display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
+        <span style={{ fontSize:11, fontWeight:600, color:T.textDim }}>職種:</span>
+        <Btn size="sm" variant={!filterPos?"primary":"secondary"} onClick={() => setFilterPos(null)}>全員</Btn>
+        {Object.entries(POSITIONS).map(([k,p]) => <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={() => setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l}</Btn>)}
+        {bulkSelected.size > 0 && (
+          <div style={{ marginLeft:"auto", display:"flex", gap:8, alignItems:"center" }}>
+            <span style={{ fontSize:12, fontWeight:600, color:T.textMid }}>{bulkSelected.size}件選択中</span>
+            <Btn size="sm" variant="success" disabled={bulkProcessing} onClick={handleBulkApprove}>
+              {bulkProcessing ? "処理中..." : `一括承認 (${bulkSelected.size})`}
+            </Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setBulkSelected(new Set())}>選択解除</Btn>
+          </div>
+        )}
+      </div>
+
+      {/* List */}
+      <div style={{ flex:1, overflow:"auto", padding:16 }}>
+        {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
+         filtered.length === 0 ? <Empty icon="✅" title={filterStatus==='pending'?"承認待ちの申請はありません":"申請はありません"} sub="すべての申請が処理済みです" /> : (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {/* Bulk select header for pending */}
+            {filterStatus === 'pending' && filtered.length > 0 && (
+              <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", background:T.bluePale, borderRadius:8, fontSize:12 }}>
+                <input type="checkbox"
+                  checked={bulkSelected.size === filtered.length && filtered.length > 0}
+                  onChange={e => setBulkSelected(e.target.checked ? new Set(filtered.map(r=>r.id)) : new Set())}
+                  style={{ cursor:"pointer" }} />
+                <span style={{ color:T.blue, fontWeight:600 }}>全て選択して一括承認</span>
+              </div>
+            )}
+
+            {filtered.map(r => {
+              const dateObj = new Date(r.request_date);
+              const dow = dateObj.getDay();
+              const isProcessing = processing === r.id;
+              const isSelected = bulkSelected.has(r.id);
+
+              return (
+                <Card key={r.id} style={{
+                  padding:"14px 16px",
+                  borderLeft: `4px solid ${r.status==='pending'?T.amber:r.status==='approved'?T.teal:T.coral}`,
+                  opacity: isProcessing ? 0.6 : 1,
+                  background: isSelected ? T.bluePale : T.white,
+                  transition:"all 0.2s",
+                }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+                    {/* Checkbox for pending */}
+                    {r.status === 'pending' && (
+                      <input type="checkbox" checked={isSelected}
+                        onChange={e => { const ns = new Set(bulkSelected); e.target.checked ? ns.add(r.id) : ns.delete(r.id); setBulkSelected(ns); }}
+                        style={{ marginTop:2, cursor:"pointer" }} />
+                    )}
+
+                    {/* Date column */}
+                    <div style={{ width:44, textAlign:"center", flexShrink:0 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:dow===0?T.coral:dow===6?T.blue:T.textDim }}>{DOW[dow]}</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:dow===0?T.coral:T.text }}>{dateObj.getDate()}</div>
+                      <div style={{ fontSize:9, color:T.textDim }}>{dateObj.getMonth()+1}月</div>
+                    </div>
+
+                    {/* Staff info */}
+                    <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0, minWidth:100 }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:POSITIONS[r.pos]?.bg||T.surface, color:POSITIONS[r.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700 }}>
+                        {r.staffName?.[0]}
+                      </div>
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:700 }}>{r.staffName}</div>
+                        <PosBadge pos={r.pos} size="xs" />
+                      </div>
+                    </div>
+
+                    {/* Shift request */}
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                        <ShiftBadge type={r.preferred_shift} size="md" />
+                        <span style={{ fontSize:13, fontWeight:600 }}>{SHIFTS[r.preferred_shift]?.f}</span>
+                        <span style={{ fontSize:11, color:T.textDim }}>{SHIFTS[r.preferred_shift]?.time}</span>
+                      </div>
+                      <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+                        <span style={{ fontSize:10, color:T.textDim }}>
+                          優先度: {Array.from({length:r.priority||1}).map((_,j) => <span key={j} style={{ color:r.priority>=3?T.coral:r.priority>=2?T.amber:T.textDim }}>★</span>)}
+                        </span>
+                        {r.reason && <span style={{ fontSize:10, color:T.textDim }}>理由: {r.reason}</span>}
+                        <span style={{ fontSize:10, color:T.textDim }}>申請: {new Date(r.created_at).toLocaleDateString('ja-JP')}</span>
+                      </div>
+                      {r.status === 'rejected' && r.reject_reason && (
+                        <div style={{ marginTop:6, fontSize:11, color:T.coral }}>却下理由: {r.reject_reason}</div>
+                      )}
+                    </div>
+
+                    {/* Status / Actions */}
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8, flexShrink:0 }}>
+                      <StatusBadge status={r.status} />
+                      {r.status === 'pending' && (
+                        <div style={{ display:"flex", gap:6 }}>
+                          <Btn size="sm" variant="danger" disabled={isProcessing}
+                            onClick={() => setRejectModal({ id:r.id, staffName:r.staffName, date:r.request_date, shift:r.preferred_shift })}>
+                            却下
+                          </Btn>
+                          <Btn size="sm" variant="success" disabled={isProcessing}
+                            onClick={() => handleAction(r.id, 'approved')}>
+                            {isProcessing ? "..." : "承認"}
+                          </Btn>
+                        </div>
+                      )}
+                      {r.status !== 'pending' && (
+                        <button onClick={() => handleAction(r.id, 'pending')} style={{ fontSize:10, color:T.textDim, background:"none", border:`1px solid ${T.border}`, borderRadius:4, padding:"2px 8px", cursor:"pointer", fontFamily:FONT }}>
+                          取消
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Reject Modal */}
+      {rejectModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}>
+          <div style={{ background:T.white, borderRadius:16, padding:24, maxWidth:400, width:"100%", boxShadow:T.shadowLg }}>
+            <h3 style={{ fontSize:16, fontWeight:800, margin:"0 0 8px" }}>申請を却下しますか？</h3>
+            <p style={{ fontSize:13, color:T.textSub, margin:"0 0 16px" }}>
+              {rejectModal.staffName}さんの {rejectModal.date} ({SHIFTS[rejectModal.shift]?.f}) の希望
+            </p>
+            <label style={{ display:"block", marginBottom:14 }}>
+              <span style={{ fontSize:12, fontWeight:600, color:T.textSub, display:"block", marginBottom:6 }}>却下理由（任意）</span>
+              <input type="text" value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+                placeholder="例: 人員不足、別スタッフ優先 など"
+                style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, outline:"none", boxSizing:"border-box" }} />
+            </label>
+            <div style={{ display:"flex", gap:8 }}>
+              <Btn variant="secondary" onClick={() => { setRejectModal(null); setRejectReason(""); }} style={{ flex:1 }}>キャンセル</Btn>
+              <Btn variant="danger" onClick={() => handleAction(rejectModal.id, 'rejected', rejectReason)} style={{ flex:1, background:T.coral, color:"#fff" }}>却下する</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// GENERATE
+// ─────────────────────────────────────────────
 function GeneratePage({ user, onNav }) {
   const [step, setStep] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -855,13 +1082,9 @@ function GeneratePage({ user, onNav }) {
 
   const startGen = () => {
     setStep(1); setProgress(0);
-    const shifts = genShifts(year, month);
-    setGeneratedShifts(shifts);
+    setGeneratedShifts(genShifts(year, month));
     ref.current = setInterval(() => {
-      setProgress(p => {
-        if (p>=100) { clearInterval(ref.current); setTimeout(()=>setStep(2),400); return 100; }
-        return p + Math.random()*8+2;
-      });
+      setProgress(p => { if (p>=100) { clearInterval(ref.current); setTimeout(()=>setStep(2),400); return 100; } return p + Math.random()*8+2; });
     }, 120);
   };
 
@@ -872,93 +1095,59 @@ function GeneratePage({ user, onNav }) {
       const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
       const { data: staffData } = await supabase.from('staff_profiles').select('id, last_name, first_name').eq('clinic_id', clinicData.id);
       const targetMonth = `${year}-${String(month).padStart(2,'0')}`;
-      const { data: reqData } = await supabase.from('shift_requests').select('staff_id, request_date, preferred_shift').eq('target_month', targetMonth).eq('status', 'pending');
-      
+      const { data: reqData } = await supabase.from('shift_requests').select('staff_id, request_date, preferred_shift').eq('target_month', targetMonth).eq('status', 'approved');
       const rows = [];
       const days = new Date(year, month, 0).getDate();
       staffData.forEach(sp => {
-        // Match by name to STAFF_DATA
-        const match = STAFF_DATA.find(s => s.name === sp.last_name + ' ' + sp.first_name || s.name.replace(' ','') === (sp.last_name+sp.first_name));
+        const match = STAFF_DATA.find(s => s.name === sp.last_name+' '+sp.first_name);
         const staffShifts = match ? generatedShifts[match.id] : null;
-        // Get shift requests for this staff member
         const staffRequests = reqData ? reqData.filter(r => r.staff_id === sp.id) : [];
         for (let d = 1; d <= days; d++) {
           const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-          // Prioritize approved/pending shift requests
           const req = staffRequests.find(r => r.request_date === dateStr);
-          const shiftType = req ? req.preferred_shift : (staffShifts ? (staffShifts[d] || 'off') : 'off');
-          rows.push({ clinic_id: clinicData.id, staff_id: sp.id, shift_date: dateStr, shift_type: shiftType, status: 'draft' });
+          rows.push({ clinic_id:clinicData.id, staff_id:sp.id, shift_date:dateStr, shift_type:req?req.preferred_shift:(staffShifts?staffShifts[d]||'off':'off'), status:'draft' });
         }
       });
-
-      // Upsert shifts
-      const { error } = await supabase.from('shifts').upsert(rows, { onConflict: 'staff_id,shift_date' });
+      const { error } = await supabase.from('shifts').upsert(rows, { onConflict:'staff_id,shift_date' });
       if (error) throw error;
       setStep(3);
-    } catch(err) {
-      setSaveError(err.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch(err) { setSaveError(err.message); }
+    finally { setSaving(false); }
   };
 
   const publishShifts = async () => {
     if (!supabase) return;
     try {
       const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      await supabase.from('shifts').update({ status: 'published' }).eq('clinic_id', clinicData.id).eq('status', 'draft');
-      // Auto-notify all staff
+      await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicData.id).eq('status','draft');
       const { data: staffData } = await supabase.from('staff_profiles').select('id').eq('clinic_id', clinicData.id);
       if (staffData) {
-        const notifRows = staffData.map(s => ({
-          clinic_id: clinicData.id, staff_id: s.id,
-          title: 'シフト公開', body: `${year}年${month}月のシフトが公開されました`, icon: '📅', read: false,
-        }));
-        await supabase.from('notifications').insert(notifRows);
+        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicData.id, staff_id:s.id, title:'シフト公開', body:`${year}年${month}月のシフトが公開されました`, icon:'📅', read:false })));
       }
-      alert('シフトを公開しました！通知を送信しました。');
-    } catch(err) {
-      alert('公開に失敗しました: ' + err.message);
-    }
+      alert('シフトを公開しました！');
+    } catch(err) { alert('公開に失敗しました: '+err.message); }
   };
 
   useEffect(() => () => clearInterval(ref.current), []);
   if (!isAdmin) return <Empty icon="🔒" title="管理者限定機能" sub={`シフトの自動生成は管理者アカウントでのみ実行できます。\n現在の権限: ${ROLES[user.role]}`} />;
+
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ padding:"16px 20px", background:T.white, borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:12 }}>
-        <div>
-          <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>⚡ 自動シフト生成</h2>
-          <span style={{ fontSize:11, fontWeight:600, color:T.blue }}>🛡️ 管理者限定</span>
-        </div>
-        <div style={{ marginLeft:"auto", display:"flex", gap:4 }}>
-          {[0,1,2,3].map(i => <div key={i} style={{ width:8, height:8, borderRadius:4, background:i<=step?T.blue:T.border, transition:"all 0.3s" }}/>)}
-        </div>
+        <div><h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>⚡ 自動シフト生成</h2><span style={{ fontSize:11, fontWeight:600, color:T.blue }}>🛡️ 管理者限定</span></div>
+        <div style={{ marginLeft:"auto", display:"flex", gap:4 }}>{[0,1,2,3].map(i => <div key={i} style={{ width:8, height:8, borderRadius:4, background:i<=step?T.blue:T.border, transition:"all 0.3s" }}/>)}</div>
       </div>
       <div style={{ flex:1, overflow:"auto", padding:20, maxWidth:800 }}>
         {step===0 && (
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-            <Card>
-              <div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>📅 対象期間</div>
-              <div style={{ padding:"10px 16px", background:T.blueSoft, borderRadius:10, fontSize:16, fontWeight:700, color:T.blue }}>2026年4月</div>
-            </Card>
-            <Card>
-              <div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>👥 提出状況</div>
-              <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-                <div><div style={{ fontSize:24, fontWeight:800 }}>8 / 10 名</div><div style={{ fontSize:12, color:T.textDim }}>提出済み（80%）</div></div>
-                <div style={{ flex:1, height:8, background:T.surface, borderRadius:4, overflow:"hidden" }}>
-                  <div style={{ width:"80%", height:"100%", background:T.teal, borderRadius:4 }}/>
-                </div>
-              </div>
-            </Card>
+            <Card><div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>📅 対象期間</div><div style={{ padding:"10px 16px", background:T.blueSoft, borderRadius:10, fontSize:16, fontWeight:700, color:T.blue }}>2026年4月</div></Card>
+            <Card><div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>👥 提出状況</div><div style={{ display:"flex", alignItems:"center", gap:16 }}><div><div style={{ fontSize:24, fontWeight:800 }}>8 / 10 名</div><div style={{ fontSize:12, color:T.textDim }}>提出済み（80%）</div></div><div style={{ flex:1, height:8, background:T.surface, borderRadius:4, overflow:"hidden" }}><div style={{ width:"80%", height:"100%", background:T.teal, borderRadius:4 }}/></div></div></Card>
             <Card>
               <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⚙️ 生成条件</div>
-              {["医師を常時1名以上配置","看護師を常時2名以上配置","夜勤連続は最大2日まで","週休2日を確保","希望優先度を考慮","公平性を最適化"].map((r,i) => (
+              {["医師を常時1名以上配置","看護師を常時2名以上配置","夜勤連続は最大2日まで","週休2日を確保","承認済み希望を優先反映","公平性を最適化"].map((r,i) => (
                 <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
                   <span style={{ fontSize:13, color:T.textMid }}>{r}</span>
-                  <div style={{ width:38, height:22, borderRadius:11, background:T.teal, position:"relative", cursor:"pointer" }}>
-                    <div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:2, left:18, boxShadow:T.shadow }}/>
-                  </div>
+                  <div style={{ width:38, height:22, borderRadius:11, background:T.teal, position:"relative" }}><div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:2, left:18, boxShadow:T.shadow }}/></div>
                 </div>
               ))}
               <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${T.borderLight}` }}>
@@ -980,7 +1169,6 @@ function GeneratePage({ user, onNav }) {
             </svg>
             <div style={{ marginTop:-90, fontSize:26, fontWeight:800, color:T.blue, fontFamily:MONO }}>{Math.min(Math.round(progress),100)}%</div>
             <div style={{ marginTop:50, fontSize:16, fontWeight:700, color:T.text }}>{progress<25?"データを収集中...":progress<50?"制約条件を分析中...":progress<75?"最適配置を計算中...":"最終調整中..."}</div>
-            <div style={{ fontSize:13, color:T.textDim }}>焼きなまし法で最適なシフトを探索しています</div>
           </div>
         )}
         {step===2 && (
@@ -991,29 +1179,12 @@ function GeneratePage({ user, onNav }) {
               <StatCard icon="⚖️" value="87.3" label="公平度スコア" color={T.amber} />
               <StatCard icon="🛡️" value="0件" label="制約違反" color={T.purple} />
             </div>
-            <Card>
-              <div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>📊 配置サマリー</div>
-              {Object.entries(POSITIONS).map(([k,p]) => {
-                const c = STAFF_DATA.filter(s=>s.pos===k).length;
-                return (
-                  <div key={k} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderTop:`1px solid ${T.borderLight}` }}>
-                    <PosBadge pos={k} />
-                    <div style={{ flex:1, height:6, background:T.surface, borderRadius:3, overflow:"hidden" }}>
-                      <div style={{ width:`${Math.min(c/4*100,100)}%`, height:"100%", background:p.c, borderRadius:3, transition:"width 0.5s" }}/>
-                    </div>
-                    <span style={{ fontSize:12, fontWeight:600, color:T.textSub, fontFamily:MONO }}>{c}名</span>
-                  </div>
-                );
-              })}
-            </Card>
-            <div style={{ textAlign:"center", fontSize:11, color:T.textDim, fontFamily:MONO }}>計算時間: 18,204ms</div>
           </div>
         )}
         {step===3 && (
           <div style={{ textAlign:"center", padding:"48px 0" }}>
             <div style={{ fontSize:56, marginBottom:16 }}>🎉</div>
             <h2 style={{ fontSize:22, fontWeight:800, margin:"0 0 8px", color:T.teal }}>シフト登録完了！</h2>
-            <p style={{ fontSize:14, color:T.textSub, lineHeight:1.7, margin:0 }}>シフトを登録しました。<br/>シフト表画面で確認してください。</p>
             <div style={{ display:"flex", gap:10, justifyContent:"center", marginTop:20 }}>
               <Btn variant="primary" onClick={() => onNav('shifts')}>シフト表を確認</Btn>
               <Btn variant="secondary" onClick={publishShifts}>シフトを公開</Btn>
@@ -1026,9 +1197,8 @@ function GeneratePage({ user, onNav }) {
           {saveError && <div style={{ fontSize:12, color:T.coral, padding:"6px 10px", background:T.coralSoft, borderRadius:6 }}>⚠️ {saveError}</div>}
           <div style={{ display:"flex", gap:10 }}>
             {step===2 && <Btn variant="secondary" onClick={()=>setStep(0)}>やり直す</Btn>}
-            <Btn variant={step===0?"primary":"success"} disabled={saving}
-              onClick={step===0?startGen:applyShifts} style={{ flex:1 }}>
-              {step===0?"⚡ シフトを自動生成する": saving?"保存中...":"✅ このシフトを適用する"}
+            <Btn variant={step===0?"primary":"success"} disabled={saving} onClick={step===0?startGen:applyShifts} style={{ flex:1 }}>
+              {step===0?"⚡ シフトを自動生成する":saving?"保存中...":"✅ このシフトを適用する"}
             </Btn>
           </div>
         </div>
@@ -1037,6 +1207,9 @@ function GeneratePage({ user, onNav }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// STAFF PAGE
+// ─────────────────────────────────────────────
 function StaffPage({ user }) {
   const [search, setSearch] = useState("");
   const [filterPos, setFilterPos] = useState(null);
@@ -1067,14 +1240,11 @@ function StaffPage({ user }) {
     setAddSaving(true); setAddError('');
     try {
       const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      const { error } = await supabase.from('staff_profiles').insert({
-        clinic_id: clinicData.id, last_name: addForm.last_name, first_name: addForm.first_name,
-        position: addForm.position, role: addForm.role, email: addForm.email, night_ok: addForm.night_ok,
-      });
+      const { error } = await supabase.from('staff_profiles').insert({ clinic_id:clinicData.id, last_name:addForm.last_name, first_name:addForm.first_name, position:addForm.position, role:addForm.role, email:addForm.email, night_ok:addForm.night_ok });
       if (error) throw error;
       setShowAdd(false); setAddForm({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
       const { data } = await supabase.from('staff_profiles').select('*').order('position');
-      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos: s.position==='doctor'?'doctor':s.position==='nurse'?'nurse':s.position==='receptionist'?'clerk':'assistant', role:s.role, email:s.email||'', night:s.night_ok||false })));
+      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position==='doctor'?'doctor':s.position==='nurse'?'nurse':s.position==='receptionist'?'clerk':'assistant', role:s.role, email:s.email||'', night:s.night_ok||false })));
     } catch(err) { setAddError(err.message); } finally { setAddSaving(false); }
   };
 
@@ -1083,18 +1253,8 @@ function StaffPage({ user }) {
     const load = async () => {
       try {
         const { data } = await supabase.from('staff_profiles').select('*').order('position');
-        if (data) {
-          const mapped = data.map(s => ({
-            id: s.id,
-            name: s.last_name + ' ' + s.first_name,
-            pos: s.position === 'doctor' ? 'doctor' : s.position === 'nurse' ? 'nurse' : s.position === 'receptionist' ? 'clerk' : s.position === 'technician' ? 'assistant' : 'assistant',
-            role: s.role,
-            email: s.email || '',
-            night: s.night_ok || false,
-          }));
-          setStaffList(mapped);
-        }
-      } catch(err) { console.error(err); setStaffList(STAFF_DATA); } finally { setLoading(false); }
+        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position==='doctor'?'doctor':s.position==='nurse'?'nurse':s.position==='receptionist'?'clerk':s.position==='technician'?'assistant':'assistant', role:s.role, email:s.email||'', night:s.night_ok||false })));
+      } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
     };
     load();
   }, []);
@@ -1117,23 +1277,18 @@ function StaffPage({ user }) {
         </div>}
       </div>
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="名前・メールで検索..."
-          style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, outline:"none", flex:1, minWidth:200 }} />
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="名前・メールで検索..." style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, outline:"none", flex:1, minWidth:200 }} />
         <div style={{ display:"flex", gap:4 }}>
           <Btn size="sm" variant={!filterPos?"primary":"secondary"} onClick={()=>setFilterPos(null)}>全員</Btn>
-          {Object.entries(POSITIONS).map(([k,p]) => (
-            <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={()=>setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l}</Btn>
-          ))}
+          {Object.entries(POSITIONS).map(([k,p]) => <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={()=>setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l}</Btn>)}
         </div>
       </div>
       {showInvite && (
         <Card style={{ marginBottom:12, padding:16, borderLeft:`3px solid ${T.blue}` }}>
           <h3 style={{ margin:"0 0 10px", fontSize:14, fontWeight:700 }}>✉️ 招待メール送信</h3>
-          <div style={{ fontSize:12, color:T.textSub, marginBottom:10 }}>スタッフのメールアドレスに招待リンクを送信します</div>
-          {inviteMsg && <div style={{ fontSize:12, marginBottom:8, color: inviteMsg.startsWith('✅') ? T.teal : T.coral }}>{inviteMsg}</div>}
+          {inviteMsg && <div style={{ fontSize:12, marginBottom:8, color:inviteMsg.startsWith('✅')?T.teal:T.coral }}>{inviteMsg}</div>}
           <div style={{ display:'flex', gap:8 }}>
-            <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="staff@example.com"
-              style={{ flex:1, padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT }} />
+            <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="staff@example.com" style={{ flex:1, padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT }} />
             <Btn variant="primary" onClick={handleInvite} disabled={inviting}>{inviting?'送信中...':'送信'}</Btn>
           </div>
         </Card>
@@ -1144,43 +1299,15 @@ function StaffPage({ user }) {
           {addError && <div style={{ fontSize:12, color:T.coral, marginBottom:8 }}>⚠️ {addError}</div>}
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
             <div style={{ display:'flex', gap:8 }}>
-              <div style={{ flex:1 }}>
-                <label style={{ fontSize:12, color:T.textSub }}>姓</label>
-                <input value={addForm.last_name} onChange={e=>setAddForm(p=>({...p,last_name:e.target.value}))} placeholder="山田"
-                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
-              </div>
-              <div style={{ flex:1 }}>
-                <label style={{ fontSize:12, color:T.textSub }}>名</label>
-                <input value={addForm.first_name} onChange={e=>setAddForm(p=>({...p,first_name:e.target.value}))} placeholder="花子"
-                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
-              </div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>姓</label><input value={addForm.last_name} onChange={e=>setAddForm(p=>({...p,last_name:e.target.value}))} placeholder="山田" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>名</label><input value={addForm.first_name} onChange={e=>setAddForm(p=>({...p,first_name:e.target.value}))} placeholder="花子" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <div style={{ flex:1 }}>
-                <label style={{ fontSize:12, color:T.textSub }}>職種</label>
-                <select value={addForm.position} onChange={e=>setAddForm(p=>({...p,position:e.target.value}))}
-                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}>
-                  <option value="doctor">医師</option><option value="nurse">看護師</option>
-                  <option value="receptionist">事務</option><option value="technician">助手</option>
-                </select>
-              </div>
-              <div style={{ flex:1 }}>
-                <label style={{ fontSize:12, color:T.textSub }}>権限</label>
-                <select value={addForm.role} onChange={e=>setAddForm(p=>({...p,role:e.target.value}))}
-                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}>
-                  <option value="staff">スタッフ</option><option value="manager">マネージャー</option><option value="admin">管理者</option>
-                </select>
-              </div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>職種</label><select value={addForm.position} onChange={e=>setAddForm(p=>({...p,position:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="doctor">医師</option><option value="nurse">看護師</option><option value="receptionist">事務</option><option value="technician">助手</option></select></div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>権限</label><select value={addForm.role} onChange={e=>setAddForm(p=>({...p,role:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="staff">スタッフ</option><option value="manager">マネージャー</option><option value="admin">管理者</option></select></div>
             </div>
-            <div>
-              <label style={{ fontSize:12, color:T.textSub }}>メール（任意）</label>
-              <input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com"
-                style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
-            </div>
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}>
-              <input type="checkbox" checked={addForm.night_ok} onChange={e=>setAddForm(p=>({...p,night_ok:e.target.checked}))} />
-              夜勤可能
-            </label>
+            <div><label style={{ fontSize:12, color:T.textSub }}>メール（任意）</label><input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}><input type="checkbox" checked={addForm.night_ok} onChange={e=>setAddForm(p=>({...p,night_ok:e.target.checked}))} />夜勤可能</label>
             <div style={{ display:'flex', gap:8 }}>
               <Btn variant="secondary" onClick={() => setShowAdd(false)}>キャンセル</Btn>
               <Btn variant="primary" onClick={handleAddStaff} disabled={addSaving} style={{ flex:1 }}>{addSaving?'追加中...':'追加する'}</Btn>
@@ -1189,40 +1316,29 @@ function StaffPage({ user }) {
         </Card>
       )}
       {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> : <>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))", gap:8, marginBottom:16 }}>
-        {Object.entries(POSITIONS).map(([k,p]) => {
-          const c = staffList.filter(s=>s.pos===k).length;
-          return (
-            <div key={k} style={{ textAlign:"center", padding:"10px", background:p.bg, borderRadius:10 }}>
-              <div style={{ fontSize:22, fontWeight:800, color:p.c }}>{c}</div>
-              <div style={{ fontSize:10, color:p.c, fontWeight:600 }}>{p.l}</div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-        {filtered.map(s => (
-          <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
-            <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[s.pos]?.bg||T.surface, color:POSITIONS[s.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, flexShrink:0 }}>{s.name[0]}</div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                <span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span>
-                <PosBadge pos={s.pos} size="xs" />
-                <RoleBadge role={s.role} />
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))", gap:8, marginBottom:16 }}>
+          {Object.entries(POSITIONS).map(([k,p]) => { const c=staffList.filter(s=>s.pos===k).length; return <div key={k} style={{ textAlign:"center", padding:"10px", background:p.bg, borderRadius:10 }}><div style={{ fontSize:22, fontWeight:800, color:p.c }}>{c}</div><div style={{ fontSize:10, color:p.c, fontWeight:600 }}>{p.l}</div></div>; })}
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {filtered.map(s => (
+            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
+              <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[s.pos]?.bg||T.surface, color:POSITIONS[s.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, flexShrink:0 }}>{s.name[0]}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}><span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span><PosBadge pos={s.pos} size="xs" /><RoleBadge role={s.role} /></div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email}</div>
               </div>
-              <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email}</div>
-            </div>
-            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
               {s.night && <span style={{ fontSize:10, fontWeight:600, color:T.purple, background:T.purpleSoft, padding:"3px 8px", borderRadius:6 }}>夜勤○</span>}
-            </div>
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
       </>}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────
+// SWAP PAGE
+// ─────────────────────────────────────────────
 function SwapPage({ user }) {
   const [tab, setTab] = useState(0);
   const [swaps, setSwaps] = useState([]);
@@ -1234,19 +1350,18 @@ function SwapPage({ user }) {
   const [error, setError] = useState('');
 
   const loadData = async () => {
-    if (!supabase) return;
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: spData } = await supabase.from('staff_profiles').select('id, last_name, first_name');
       setStaffList(spData || []);
-      const { data: exData } = await supabase.from('shift_exchanges').select('*').order('created_at', { ascending: false });
+      const { data: exData } = await supabase.from('shift_exchanges').select('*').order('created_at', { ascending:false });
       if (exData) {
-        const enriched = exData.map(ex => ({
+        setSwaps(exData.map(ex => ({
           ...ex,
-          requesterName: spData?.find(s => s.id === ex.requester_id) ? spData.find(s => s.id === ex.requester_id).last_name + ' ' + spData.find(s => s.id === ex.requester_id).first_name : '不明',
-          targetName: spData?.find(s => s.id === ex.target_id) ? spData.find(s => s.id === ex.target_id).last_name + ' ' + spData.find(s => s.id === ex.target_id).first_name : '不明',
-        }));
-        setSwaps(enriched);
+          requesterName: spData?.find(s=>s.id===ex.requester_id) ? spData.find(s=>s.id===ex.requester_id).last_name+' '+spData.find(s=>s.id===ex.requester_id).first_name : '不明',
+          targetName: spData?.find(s=>s.id===ex.target_id) ? spData.find(s=>s.id===ex.target_id).last_name+' '+spData.find(s=>s.id===ex.target_id).first_name : '不明',
+        })));
       }
     } catch(err) { console.error(err); } finally { setLoading(false); }
   };
@@ -1254,26 +1369,13 @@ function SwapPage({ user }) {
   useEffect(() => { loadData(); }, []);
 
   const handleSubmit = async () => {
-    if (!form.target_id || !form.requester_date || !form.target_date) { setError('必須項目を入力してください'); return; }
+    if (!form.target_id||!form.requester_date||!form.target_date) { setError('必須項目を入力してください'); return; }
     setSaving(true); setError('');
     try {
       const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      const { error: err } = await supabase.from('shift_exchanges').insert({
-        clinic_id: clinicData.id,
-        requester_id: user.id,
-        target_id: form.target_id,
-        requester_date: form.requester_date,
-        target_date: form.target_date,
-        reason: form.reason,
-        status: 'pending',
-      });
+      const { error: err } = await supabase.from('shift_exchanges').insert({ clinic_id:clinicData.id, requester_id:user.id, target_id:form.target_id, requester_date:form.requester_date, target_date:form.target_date, reason:form.reason, status:'pending' });
       if (err) throw err;
-      // Notify target staff
-      const requesterName = user.name || 'スタッフ';
-      await supabase.from('notifications').insert([{
-        clinic_id: clinicData.id, staff_id: form.target_id,
-        title: '交換リクエスト', body: `${requesterName}さんから${form.requester_date}のシフト交換リクエストが届いています`, icon: '🔄', read: false,
-      }]);
+      await supabase.from('notifications').insert([{ clinic_id:clinicData.id, staff_id:form.target_id, title:'交換リクエスト', body:`${user.name||'スタッフ'}さんから${form.requester_date}のシフト交換リクエストが届いています`, icon:'🔄', read:false }]);
       setShowForm(false); setForm({ target_id:'', requester_date:'', target_date:'', reason:'' });
       loadData();
     } catch(err) { setError(err.message); } finally { setSaving(false); }
@@ -1281,92 +1383,56 @@ function SwapPage({ user }) {
 
   const handleApprove = async (id, approved) => {
     try {
-      const sw = swaps.find(s => s.id === id);
-      await supabase.from('shift_exchanges').update({ status: approved ? 'approved' : 'rejected' }).eq('id', id);
+      const sw = swaps.find(s=>s.id===id);
+      await supabase.from('shift_exchanges').update({ status:approved?'approved':'rejected' }).eq('id', id);
       if (approved && sw) {
-        // Swap the actual shifts
-        const { data: reqShift } = await supabase.from('shifts').select('shift_type').eq('staff_id', sw.requester_id).eq('shift_date', sw.requester_date).single();
-        const { data: tgtShift } = await supabase.from('shifts').select('shift_type').eq('staff_id', sw.target_id).eq('shift_date', sw.target_date).single();
-        if (reqShift && tgtShift) {
-          await supabase.from('shifts').update({ shift_type: tgtShift.shift_type }).eq('staff_id', sw.requester_id).eq('shift_date', sw.requester_date);
-          await supabase.from('shifts').update({ shift_type: reqShift.shift_type }).eq('staff_id', sw.target_id).eq('shift_date', sw.target_date);
+        const { data: reqShift } = await supabase.from('shifts').select('shift_type').eq('staff_id',sw.requester_id).eq('shift_date',sw.requester_date).single();
+        const { data: tgtShift } = await supabase.from('shifts').select('shift_type').eq('staff_id',sw.target_id).eq('shift_date',sw.target_date).single();
+        if (reqShift&&tgtShift) {
+          await supabase.from('shifts').update({shift_type:tgtShift.shift_type}).eq('staff_id',sw.requester_id).eq('shift_date',sw.requester_date);
+          await supabase.from('shifts').update({shift_type:reqShift.shift_type}).eq('staff_id',sw.target_id).eq('shift_date',sw.target_date);
         }
-        // Notify requester
         const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-        await supabase.from('notifications').insert([
-          { clinic_id: clinicData.id, staff_id: sw.requester_id, title: 'シフト交換承認', body: `${sw.requester_date}のシフト交換が承認されました`, icon: '🔄', read: false },
-        ]);
-      } else if (!approved && sw) {
-        const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-        await supabase.from('notifications').insert([
-          { clinic_id: clinicData.id, staff_id: sw.requester_id, title: 'シフト交換却下', body: `${sw.requester_date}のシフト交換が却下されました`, icon: '❌', read: false },
-        ]);
+        await supabase.from('notifications').insert([{ clinic_id:clinicData.id, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
       }
       loadData();
     } catch(err) { console.error(err); }
   };
 
-  const incoming = swaps.filter(s => s.target_id === user.id);
-  const outgoing = swaps.filter(s => s.requester_id === user.id);
-  const displayed = tab === 0 ? incoming : outgoing;
-
-  const statusLabel = (s) => s === 'pending' ? '承認待ち' : s === 'approved' ? '承認済み' : '却下';
-  const statusColor = (s) => s === 'pending' ? T.amber : s === 'approved' ? T.teal : T.coral;
-  const statusBg = (s) => s === 'pending' ? T.amberSoft : s === 'approved' ? T.tealSoft : T.coralSoft;
+  const incoming = swaps.filter(s=>s.target_id===user.id);
+  const outgoing = swaps.filter(s=>s.requester_id===user.id);
+  const displayed = tab===0?incoming:outgoing;
+  const statusLabel = s => s==='pending'?'承認待ち':s==='approved'?'承認済み':'却下';
+  const statusColor = s => s==='pending'?T.amber:s==='approved'?T.teal:T.coral;
+  const statusBg = s => s==='pending'?T.amberSoft:s==='approved'?T.tealSoft:T.coralSoft;
 
   return (
     <div style={{ padding:20, maxWidth:700 }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>🔄 シフト交換</h2>
         <div style={{ flex:1 }}/>
-        <Btn variant="primary" size="sm" icon="➕" onClick={() => setShowForm(p => !p)}>交換リクエスト</Btn>
+        <Btn variant="primary" size="sm" icon="➕" onClick={() => setShowForm(p=>!p)}>交換リクエスト</Btn>
       </div>
       {showForm && (
         <Card style={{ marginBottom:16, padding:16, borderLeft:`3px solid ${T.blue}` }}>
           <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>新しい交換リクエスト</h3>
           {error && <div style={{ fontSize:12, color:T.coral, marginBottom:8 }}>⚠️ {error}</div>}
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            <div>
-              <label style={{ fontSize:12, color:T.textSub }}>交換相手</label>
-              <select value={form.target_id} onChange={e => setForm(p=>({...p, target_id:e.target.value}))}
-                style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}>
-                <option value="">選択してください</option>
-                {staffList.filter(s => s.id !== user.id).map(s => (
-                  <option key={s.id} value={s.id}>{s.last_name} {s.first_name}</option>
-                ))}
-              </select>
-            </div>
+            <div><label style={{ fontSize:12, color:T.textSub }}>交換相手</label><select value={form.target_id} onChange={e=>setForm(p=>({...p,target_id:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="">選択してください</option>{staffList.filter(s=>s.id!==user.id).map(s=><option key={s.id} value={s.id}>{s.last_name} {s.first_name}</option>)}</select></div>
             <div style={{ display:'flex', gap:10 }}>
-              <div style={{ flex:1 }}>
-                <label style={{ fontSize:12, color:T.textSub }}>自分のシフト日</label>
-                <input type="date" value={form.requester_date} onChange={e => setForm(p=>({...p, requester_date:e.target.value}))}
-                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
-              </div>
-              <div style={{ flex:1 }}>
-                <label style={{ fontSize:12, color:T.textSub }}>相手のシフト日</label>
-                <input type="date" value={form.target_date} onChange={e => setForm(p=>({...p, target_date:e.target.value}))}
-                  style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
-              </div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>自分のシフト日</label><input type="date" value={form.requester_date} onChange={e=>setForm(p=>({...p,requester_date:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
+              <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>相手のシフト日</label><input type="date" value={form.target_date} onChange={e=>setForm(p=>({...p,target_date:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
             </div>
-            <div>
-              <label style={{ fontSize:12, color:T.textSub }}>理由（任意）</label>
-              <input type="text" value={form.reason} onChange={e => setForm(p=>({...p, reason:e.target.value}))} placeholder="例: 家庭の事情"
-                style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} />
-            </div>
-            <div style={{ display:'flex', gap:8 }}>
-              <Btn variant="secondary" onClick={() => setShowForm(false)}>キャンセル</Btn>
-              <Btn variant="primary" onClick={handleSubmit} disabled={saving} style={{ flex:1 }}>{saving ? '送信中...' : '送信する'}</Btn>
-            </div>
+            <div><label style={{ fontSize:12, color:T.textSub }}>理由（任意）</label><input type="text" value={form.reason} onChange={e=>setForm(p=>({...p,reason:e.target.value}))} placeholder="例: 家庭の事情" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
+            <div style={{ display:'flex', gap:8 }}><Btn variant="secondary" onClick={()=>setShowForm(false)}>キャンセル</Btn><Btn variant="primary" onClick={handleSubmit} disabled={saving} style={{ flex:1 }}>{saving?'送信中...':'送信する'}</Btn></div>
           </div>
         </Card>
       )}
       <div style={{ display:"flex", gap:0, marginBottom:16, borderBottom:`1px solid ${T.border}` }}>
-        {["受信","送信済み"].map((l,i) => (
-          <button key={i} onClick={()=>setTab(i)} style={{ padding:"10px 20px", border:"none", background:"none", cursor:"pointer", borderBottom: tab===i?`3px solid ${T.blue}`:"3px solid transparent", color: tab===i?T.text:T.textDim, fontSize:13, fontWeight:tab===i?700:500, fontFamily:FONT }}>{l}</button>
-        ))}
+        {["受信","送信済み"].map((l,i) => <button key={i} onClick={()=>setTab(i)} style={{ padding:"10px 20px", border:"none", background:"none", cursor:"pointer", borderBottom:tab===i?`3px solid ${T.blue}`:"3px solid transparent", color:tab===i?T.text:T.textDim, fontSize:13, fontWeight:tab===i?700:500, fontFamily:FONT }}>{l}</button>)}
       </div>
       {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
-       displayed.length === 0 ? <Empty icon="🔄" title="リクエストなし" sub="交換リクエストはありません" /> :
+       displayed.length===0 ? <Empty icon="🔄" title="リクエストなし" sub="交換リクエストはありません" /> :
        displayed.map(sw => (
         <Card key={sw.id} style={{ marginBottom:10, padding:16 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
@@ -1375,67 +1441,51 @@ function SwapPage({ user }) {
           </div>
           <div style={{ fontSize:12, color:T.textSub }}>{sw.requester_date} ⇄ {sw.target_date}</div>
           {sw.reason && <div style={{ fontSize:12, color:T.textDim, marginTop:6 }}>理由: {sw.reason}</div>}
-          {sw.status === 'pending' && tab === 0 && (
-            <div style={{ display:"flex", gap:8, marginTop:10 }}>
-              <Btn size="sm" variant="danger" onClick={() => handleApprove(sw.id, false)}>却下</Btn>
-              <Btn size="sm" variant="success" onClick={() => handleApprove(sw.id, true)}>承認</Btn>
-            </div>
-          )}
+          {sw.status==='pending'&&tab===0 && <div style={{ display:"flex", gap:8, marginTop:10 }}><Btn size="sm" variant="danger" onClick={()=>handleApprove(sw.id,false)}>却下</Btn><Btn size="sm" variant="success" onClick={()=>handleApprove(sw.id,true)}>承認</Btn></div>}
         </Card>
       ))}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────
+// NOTIF / SETTINGS
+// ─────────────────────────────────────────────
 function NotifPage({ user }) {
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const loadNotifs = async () => {
-    if (!supabase || user.id === 'new') { setLoading(false); return; }
-    try {
-      const { data } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false });
-      setNotifs(data || []);
-    } catch(err) { console.error(err); } finally { setLoading(false); }
+    if (!supabase||user.id==='new') { setLoading(false); return; }
+    try { const { data } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false }); setNotifs(data||[]); }
+    catch(err) { console.error(err); } finally { setLoading(false); }
   };
-
   useEffect(() => { loadNotifs(); }, [user.id]);
 
   const markRead = async (id) => {
-    try {
-      await supabase.from('notifications').update({ read:true }).eq('id', id);
-      setNotifs(p => p.map(n => n.id===id ? {...n, read:true} : n));
-    } catch(err) { console.error(err); }
+    try { await supabase.from('notifications').update({read:true}).eq('id',id); setNotifs(p=>p.map(n=>n.id===id?{...n,read:true}:n)); } catch(err) {}
   };
-
   const markAllRead = async () => {
-    try {
-      await supabase.from('notifications').update({ read:true }).eq('staff_id', user.id).eq('read', false);
-      setNotifs(p => p.map(n => ({...n, read:true})));
-    } catch(err) { console.error(err); }
+    try { await supabase.from('notifications').update({read:true}).eq('staff_id',user.id).eq('read',false); setNotifs(p=>p.map(n=>({...n,read:true}))); } catch(err) {}
   };
-
-  const unreadCount = notifs.filter(n => !n.read).length;
+  const unreadCount = notifs.filter(n=>!n.read).length;
 
   return (
     <div style={{ padding:20, maxWidth:700 }}>
       <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>🔔 通知</h2>
-        {unreadCount > 0 && <span style={{ fontSize:11, fontWeight:700, background:T.blue, color:'#fff', padding:'2px 8px', borderRadius:10 }}>{unreadCount}</span>}
+        {unreadCount>0 && <span style={{ fontSize:11, fontWeight:700, background:T.blue, color:'#fff', padding:'2px 8px', borderRadius:10 }}>{unreadCount}</span>}
         <div style={{ flex:1 }}/>
-        {unreadCount > 0 && <Btn size="sm" variant="secondary" onClick={markAllRead}>すべて既読</Btn>}
+        {unreadCount>0 && <Btn size="sm" variant="secondary" onClick={markAllRead}>すべて既読</Btn>}
       </div>
       {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
-       notifs.length === 0 ? <Empty icon="🔔" title="通知なし" sub="新しい通知はありません" /> :
+       notifs.length===0 ? <Empty icon="🔔" title="通知なし" sub="新しい通知はありません" /> :
        notifs.map((n,i) => (
-        <Card key={n.id} hover style={{ marginBottom:8, padding:14, opacity:n.read?0.6:1, cursor:"pointer" }} onClick={() => !n.read && markRead(n.id)}>
+        <Card key={n.id} hover style={{ marginBottom:8, padding:14, opacity:n.read?0.6:1, cursor:"pointer" }} onClick={() => !n.read&&markRead(n.id)}>
           <div style={{ display:"flex", gap:12 }}>
-            <span style={{ fontSize:24 }}>{n.icon || '🔔'}</span>
+            <span style={{ fontSize:24 }}>{n.icon||'🔔'}</span>
             <div style={{ flex:1 }}>
-              <div style={{ display:"flex", justifyContent:"space-between" }}>
-                <span style={{ fontSize:13, fontWeight:n.read?500:700 }}>{n.title}</span>
-                <span style={{ fontSize:10, color:T.textDim }}>{new Date(n.created_at).toLocaleDateString('ja-JP')}</span>
-              </div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontSize:13, fontWeight:n.read?500:700 }}>{n.title}</span><span style={{ fontSize:10, color:T.textDim }}>{new Date(n.created_at).toLocaleDateString('ja-JP')}</span></div>
               <div style={{ fontSize:12, color:T.textSub, marginTop:4 }}>{n.body}</div>
             </div>
             {!n.read && <div style={{ width:8, height:8, borderRadius:4, background:T.blue, marginTop:4 }}/>}
@@ -1451,19 +1501,15 @@ function SettingsPage({ user, onSwitch, onLogout }) {
     <div style={{ padding:20, maxWidth:700 }}>
       <h2 style={{ fontSize:18, fontWeight:800, margin:"0 0 16px" }}>⚙️ 設定</h2>
       <Card style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
-        <div style={{ width:52, height:52, borderRadius:14, background:POSITIONS[user.pos]?.bg || T.surface, color:POSITIONS[user.pos]?.c || T.textMid, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700 }}>{user.name[0]}</div>
-        <div>
-          <div style={{ fontSize:16, fontWeight:700 }}>{user.name}</div>
-          <div style={{ display:"flex", gap:6, marginTop:4 }}><PosBadge pos={user.pos} /><RoleBadge role={user.role} /></div>
-          <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{user.email}</div>
-        </div>
+        <div style={{ width:52, height:52, borderRadius:14, background:POSITIONS[user.pos]?.bg||T.surface, color:POSITIONS[user.pos]?.c||T.textMid, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700 }}>{user.name[0]}</div>
+        <div><div style={{ fontSize:16, fontWeight:700 }}>{user.name}</div><div style={{ display:"flex", gap:6, marginTop:4 }}><PosBadge pos={user.pos} /><RoleBadge role={user.role} /></div><div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{user.email}</div></div>
       </Card>
       <Card style={{ marginBottom:16, borderLeft:`3px solid ${T.blue}` }}>
         <div style={{ fontSize:13, fontWeight:700, color:T.blue, marginBottom:8 }}>🧪 デモ: ユーザー切替</div>
-        <div style={{ fontSize:11, color:T.textDim, marginBottom:10 }}>異なる権限のユーザーで動作を確認できます（自動生成の🔒ロックを体験）</div>
+        <div style={{ fontSize:11, color:T.textDim, marginBottom:10 }}>異なる権限のユーザーで動作を確認（承認ワークフローの体験に！）</div>
         <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
           {STAFF_DATA.slice(0,5).map(s => (
-            <button key={s.id} onClick={() => onSwitch(s)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, cursor:"pointer", textAlign:"left", fontFamily:FONT, border: user.id===s.id ? `2px solid ${T.blue}` : `1px solid ${T.border}`, background: user.id===s.id ? T.bluePale : T.white }}>
+            <button key={s.id} onClick={() => onSwitch(s)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, cursor:"pointer", textAlign:"left", fontFamily:FONT, border:user.id===s.id?`2px solid ${T.blue}`:`1px solid ${T.border}`, background:user.id===s.id?T.bluePale:T.white }}>
               <PosBadge pos={s.pos} size="xs" />
               <span style={{ fontSize:13, fontWeight:600, flex:1 }}>{s.name}</span>
               <RoleBadge role={s.role} />
@@ -1473,10 +1519,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
         </div>
       </Card>
       <Card style={{ marginBottom:16 }}>
-        {["プッシュ通知設定","通知カテゴリー",
-          ...(user.role==="admin" ? ["クリニック情報","シフトテンプレート","人員配置ルール"] : []),
-          "利用規約","プライバシーポリシー"
-        ].map((item, i) => (
+        {["プッシュ通知設定","通知カテゴリー",...(user.role==="admin"?["クリニック情報","シフトテンプレート","人員配置ルール"]:[]),"利用規約","プライバシーポリシー"].map((item,i) => (
           <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
             <span style={{ fontSize:13, color:T.textMid }}>{item}</span>
             <span style={{ fontSize:12, color:T.textDim }}>→</span>
@@ -1484,78 +1527,49 @@ function SettingsPage({ user, onSwitch, onLogout }) {
         ))}
       </Card>
       <Btn variant="danger" onClick={onLogout} style={{ width:"100%" }}>ログアウト</Btn>
-      <div style={{ textAlign:"center", fontSize:11, color:T.textDim, marginTop:12 }}>Version 2.0.0 {isSupabaseConfigured() ? "🟢 Supabase接続済" : "🟡 デモモード"}</div>
+      <div style={{ textAlign:"center", fontSize:11, color:T.textDim, marginTop:12 }}>Version 2.1.0 {isSupabaseConfigured() ? "🟢 Supabase接続済" : "🟡 デモモード"}</div>
     </div>
   );
 }
 
-function MoreMenu({ user, onNav, onLogout }) {
-  return <MoreMenuPage user={user} onNav={onNav} onLogout={onLogout} />;
-}
-
+// ─────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────
 export default function ShiftManagerWebApp() {
   const [user, setUser] = useState(null);
   const [page, setPage] = useState("home");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
 
   useEffect(() => {
     if (isSupabaseConfigured() && supabase) {
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          loadStaffProfile(session.user.id);
-        } else {
-          setAuthLoading(false);
-        }
+        if (session?.user) loadStaffProfile(session.user.id);
+        else setAuthLoading(false);
       });
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          loadStaffProfile(session.user.id);
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null);
-        }
+        if (event === 'SIGNED_IN' && session?.user) loadStaffProfile(session.user.id);
+        else if (event === 'SIGNED_OUT') setUser(null);
       });
       return () => subscription.unsubscribe();
-    } else {
-      setAuthLoading(false);
-    }
+    } else { setAuthLoading(false); }
   }, []);
 
   const loadStaffProfile = async (uid) => {
     if (!supabase) return;
     try {
-      const { data, error } = await supabase
-        .from('staff_profiles')
-        .select('*')
-        .eq('auth_user_id', uid)
-        .single();
+      const { data, error } = await supabase.from('staff_profiles').select('*').eq('auth_user_id', uid).single();
       if (data && !error) {
         const posMap = { doctor:'doctor', nurse:'nurse', receptionist:'clerk', technician:'assistant', other:'assistant' };
-        setUser({
-          id: data.id,
-          name: data.last_name + ' ' + data.first_name,
-          email: data.email || '',
-          pos: posMap[data.position] || 'nurse',
-          role: data.user_role,
-          night: data.can_work_night,
-        });
+        setUser({ id:data.id, name:data.last_name+' '+data.first_name, email:data.email||'', pos:posMap[data.position]||'nurse', role:data.user_role, night:data.can_work_night });
       } else {
         const { data: { user: authUser } } = await supabase.auth.getUser();
-        setUser({
-          id: 'new',
-          name: authUser?.email?.split('@')[0] || 'ユーザー',
-          email: authUser?.email || '',
-          pos: 'nurse',
-          role: 'staff',
-          night: false,
-        });
+        setUser({ id:'new', name:authUser?.email?.split('@')[0]||'ユーザー', email:authUser?.email||'', pos:'nurse', role:'staff', night:false });
       }
-    } catch (err) {
-      console.error('Failed to load staff profile:', err);
-    } finally {
-      setAuthLoading(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setAuthLoading(false); }
   };
 
   useEffect(() => {
@@ -1565,23 +1579,31 @@ export default function ShiftManagerWebApp() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  if (authLoading) {
-    return (
-      <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:`linear-gradient(135deg, ${T.navy} 0%, #263B5E 50%, #1E3250 100%)`, fontFamily:FONT }}>
-        <div style={{ textAlign:"center", color:"#fff" }}>
-          <div style={{ fontSize:48, marginBottom:16 }}>📋</div>
-          <div style={{ fontSize:16, fontWeight:600 }}>読み込み中...</div>
-        </div>
-      </div>
-    );
-  }
+  // Load initial pending count for managers
+  useEffect(() => {
+    if (!user) return;
+    const isManager = user.role === "admin" || user.role === "manager";
+    if (!isManager) return;
+    if (!supabase) {
+      setPendingApprovalCount(DEMO_REQUESTS.filter(r => r.status === 'pending').length);
+      return;
+    }
+    supabase.from('shift_requests').select('id', { count:'exact' }).eq('status','pending')
+      .then(({ count }) => { if (count != null) setPendingApprovalCount(count); })
+      .catch(console.error);
+  }, [user]);
+
+  if (authLoading) return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:`linear-gradient(135deg, ${T.navy} 0%, #263B5E 50%, #1E3250 100%)`, fontFamily:FONT }}>
+      <div style={{ textAlign:"center", color:"#fff" }}><div style={{ fontSize:48, marginBottom:16 }}>📋</div><div style={{ fontSize:16, fontWeight:600 }}>読み込み中...</div></div>
+    </div>
+  );
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
   const handleLogout = async () => {
     if (isSupabaseConfigured() && supabase) await supabase.auth.signOut();
-    setUser(null);
-    setPage("home");
+    setUser(null); setPage("home");
   };
   const handleSwitch = (s) => { setUser(s); setPage("home"); };
 
@@ -1590,13 +1612,14 @@ export default function ShiftManagerWebApp() {
       case "home":     return <HomePage user={user} onNav={setPage} />;
       case "shifts":   return <ShiftTablePage user={user} />;
       case "request":  return <RequestPage user={user} />;
+      case "approval": return <ApprovalPage user={user} onPendingCountChange={setPendingApprovalCount} />;
       case "generate": return <GeneratePage user={user} onNav={setPage} />;
       case "staff":    return <StaffPage user={user} />;
       case "swap":     return <SwapPage user={user} />;
       case "notif":    return <NotifPage user={user} />;
       case "settings": return <SettingsPage user={user} onSwitch={handleSwitch} onLogout={handleLogout} />;
-      case "more":     return <MoreMenu user={user} onNav={setPage} onLogout={handleLogout} />;
-      default:         return <HomePage user={user} />;
+      case "more":     return <MoreMenuPage user={user} onNav={setPage} onLogout={handleLogout} />;
+      default:         return <HomePage user={user} onNav={setPage} />;
     }
   };
 
@@ -1604,22 +1627,20 @@ export default function ShiftManagerWebApp() {
     <div style={{ display:"flex", height:"100vh", fontFamily:FONT, background:T.bg, overflow:"hidden" }}>
       {!isMobile && (
         <Sidebar user={user} active={page} onNav={setPage} onLogout={handleLogout}
-          collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(p=>!p)} />
+          collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(p=>!p)}
+          pendingCount={pendingApprovalCount} />
       )}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
         {isMobile && (
           <div style={{ padding:"10px 16px", background:T.navy, display:"flex", alignItems:"center", gap:10, paddingTop:"max(10px, env(safe-area-inset-top))" }}>
             <div style={{ width:32, height:32, borderRadius:8, background:"rgba(255,255,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>📋</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>Shift Manager</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,0.6)" }}>World Wing 三宮</div>
-            </div>
-            <button onClick={() => setPage("notif")} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, padding:4 }}>🔔</button>
+            <div style={{ flex:1 }}><div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>Shift Manager</div><div style={{ fontSize:10, color:"rgba(255,255,255,0.6)" }}>World Wing 三宮</div></div>
+            <button onClick={() => setPage("notif")} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, padding:4, position:"relative" }}>🔔</button>
             <div style={{ width:30, height:30, borderRadius:10, background:POSITIONS[user.pos]?.bg||T.surface, color:POSITIONS[user.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700 }}>{user.name[0]}</div>
           </div>
         )}
         <div style={{ flex:1, overflow:"auto" }}>{renderPage()}</div>
-        {isMobile && <MobileNav user={user} active={page} onNav={setPage} />}
+        {isMobile && <MobileNav user={user} active={page} onNav={setPage} pendingCount={pendingApprovalCount} />}
       </div>
     </div>
   );
