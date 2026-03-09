@@ -1682,8 +1682,9 @@ function AttendancePage({ user }) {
   );
 }
 
-
+function SettingsPage({ user, onSwitch, onLogout }) {
   return (
+
     <div style={{ padding:20, maxWidth:700 }}>
       <h2 style={{ fontSize:18, fontWeight:800, margin:"0 0 16px" }}>⚙️ 設定</h2>
       <Card style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
