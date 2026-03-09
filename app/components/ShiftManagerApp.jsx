@@ -299,15 +299,16 @@ function LoginScreen({ onLogin }) {
 function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCount }) {
   const isManager = user.role === "admin" || user.role === "manager";
   const items = [
-    { id:"home",     icon:"🏠", label:"ホーム" },
-    { id:"shifts",   icon:"📊", label:"シフト表" },
-    { id:"request",  icon:"📝", label:"希望提出" },
-    { id:"approval", icon:"✅", label:"申請承認", admin:true, badge: isManager ? pendingCount : 0 },
-    { id:"generate", icon:"⚡", label:"自動生成", admin:true },
-    { id:"staff",    icon:"👥", label:"スタッフ" },
-    { id:"swap",     icon:"🔄", label:"シフト交換" },
-    { id:"notif",    icon:"🔔", label:"通知", badge:2 },
-    { id:"settings", icon:"⚙️", label:"設定" },
+    { id:"home",       icon:"🏠", label:"ホーム" },
+    { id:"shifts",     icon:"📊", label:"シフト表" },
+    { id:"request",    icon:"📝", label:"希望提出" },
+    { id:"approval",   icon:"✅", label:"申請承認", admin:true, badge: isManager ? pendingCount : 0 },
+    { id:"attendance", icon:"⏱️", label:"勤怠管理" },
+    { id:"generate",   icon:"⚡", label:"自動生成", admin:true },
+    { id:"staff",      icon:"👥", label:"スタッフ" },
+    { id:"swap",       icon:"🔄", label:"シフト交換" },
+    { id:"notif",      icon:"🔔", label:"通知", badge:2 },
+    { id:"settings",   icon:"⚙️", label:"設定" },
   ];
   const w = collapsed ? 68 : 240;
   return (
@@ -1504,7 +1505,184 @@ function NotifPage({ user }) {
   );
 }
 
-function SettingsPage({ user, onSwitch, onLogout }) {
+// ─────────────────────────────────────────────
+// ATTENDANCE PAGE
+// ─────────────────────────────────────────────
+function AttendancePage({ user }) {
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [clockedIn, setClockedIn] = useState(false);
+  const [todayRecord, setTodayRecord] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [staffList, setStaffList] = useState([]);
+  const [selectedStaff, setSelectedStaff] = useState(user.id);
+  const isManager = user.role === "admin" || user.role === "manager";
+  const todayStr = today.toISOString().split('T')[0];
+
+  useEffect(() => {
+    if (!supabase) return;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const startDate = `${year}-${String(month).padStart(2,'0')}-01`;
+        const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+        const staffId = isManager && selectedStaff !== user.id ? selectedStaff : user.id;
+        const { data } = await supabase.from('attendance_records').select('*')
+          .eq('staff_id', staffId).gte('date', startDate).lte('date', endDate).order('date');
+        if (data) setRecords(data);
+        const todayRec = data?.find(r => r.date === todayStr);
+        setTodayRecord(todayRec || null);
+        setClockedIn(!!todayRec?.clock_in && !todayRec?.clock_out);
+        if (isManager) {
+          const { data: sp } = await supabase.from('staff_profiles').select('id, last_name, first_name');
+          if (sp) setStaffList(sp);
+        }
+      } catch(e) {} finally { setLoading(false); }
+    };
+    load();
+  }, [year, month, selectedStaff]);
+
+  const handleClockIn = async () => {
+    if (!supabase) return;
+    setSaving(true);
+    try {
+      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+      const now = new Date().toISOString();
+      const { data } = await supabase.from('attendance_records').insert({
+        clinic_id: clinicData.id, staff_id: user.id, date: todayStr, clock_in: now, status: 'present'
+      }).select().single();
+      setTodayRecord(data); setClockedIn(true);
+      setRecords(prev => [...prev.filter(r => r.date !== todayStr), data]);
+    } catch(e) {} finally { setSaving(false); }
+  };
+
+  const handleClockOut = async () => {
+    if (!supabase || !todayRecord) return;
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      const { data } = await supabase.from('attendance_records').update({ clock_out: now })
+        .eq('id', todayRecord.id).select().single();
+      setTodayRecord(data); setClockedIn(false);
+      setRecords(prev => prev.map(r => r.id === data.id ? data : r));
+    } catch(e) {} finally { setSaving(false); }
+  };
+
+  const calcWorkHours = (r) => {
+    if (!r?.clock_in || !r?.clock_out) return null;
+    const diff = (new Date(r.clock_out) - new Date(r.clock_in)) / 1000 / 60;
+    const net = diff - (r.break_minutes || 60);
+    const h = Math.floor(net / 60); const m = Math.round(net % 60);
+    return `${h}時間${m}分`;
+  };
+
+  const totalDays = records.filter(r => r.clock_in).length;
+  const totalHoursMin = records.reduce((acc, r) => {
+    if (!r.clock_in || !r.clock_out) return acc;
+    const diff = (new Date(r.clock_out) - new Date(r.clock_in)) / 1000 / 60 - (r.break_minutes || 60);
+    return acc + diff;
+  }, 0);
+  const totalH = Math.floor(totalHoursMin / 60);
+  const totalM = Math.round(totalHoursMin % 60);
+
+  const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y-1); } else setMonth(m => m-1); };
+  const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y+1); } else setMonth(m => m+1); };
+
+  return (
+    <div style={{ padding:20, maxWidth:900 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+        <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>⏱️ 勤怠管理</h2>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <Btn size="sm" variant="secondary" onClick={prevMonth}>＜</Btn>
+          <span style={{ fontSize:14, fontWeight:700 }}>{year}年{month}月</span>
+          <Btn size="sm" variant="secondary" onClick={nextMonth}>＞</Btn>
+        </div>
+      </div>
+
+      {/* 今日の打刻 */}
+      {(selectedStaff === user.id || !isManager) && (
+        <Card style={{ marginBottom:16, background: clockedIn ? `linear-gradient(135deg, ${T.teal}, #0d9488)` : `linear-gradient(135deg, ${T.navy}, ${T.navyLight})` }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+            <div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,0.7)", marginBottom:4 }}>今日 {today.toLocaleDateString('ja-JP', {month:'long', day:'numeric', weekday:'short'})}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:"#fff" }}>
+                {clockedIn ? "⏳ 勤務中" : todayRecord?.clock_out ? "✅ 退勤済み" : "📍 未出勤"}
+              </div>
+              {todayRecord?.clock_in && (
+                <div style={{ fontSize:12, color:"rgba(255,255,255,0.7)", marginTop:4 }}>
+                  出勤: {new Date(todayRecord.clock_in).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}
+                  {todayRecord.clock_out && ` ／ 退勤: ${new Date(todayRecord.clock_out).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}`}
+                  {todayRecord.clock_out && ` ／ ${calcWorkHours(todayRecord)}`}
+                </div>
+              )}
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              {!todayRecord?.clock_in && (
+                <Btn variant="primary" onClick={handleClockIn} disabled={saving}
+                  style={{ background:"rgba(255,255,255,0.2)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", fontSize:15, padding:"10px 24px" }}>
+                  {saving ? "処理中..." : "🟢 出勤"}
+                </Btn>
+              )}
+              {clockedIn && (
+                <Btn variant="danger" onClick={handleClockOut} disabled={saving}
+                  style={{ background:"rgba(255,255,255,0.2)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", fontSize:15, padding:"10px 24px" }}>
+                  {saving ? "処理中..." : "🔴 退勤"}
+                </Btn>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 月次サマリー */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:12, marginBottom:16 }}>
+        <Card style={{ textAlign:"center", padding:14 }}>
+          <div style={{ fontSize:28, fontWeight:800, color:T.blue }}>{totalDays}</div>
+          <div style={{ fontSize:11, color:T.textSub, marginTop:2 }}>出勤日数</div>
+        </Card>
+        <Card style={{ textAlign:"center", padding:14 }}>
+          <div style={{ fontSize:28, fontWeight:800, color:T.teal }}>{totalH}<span style={{ fontSize:14 }}>時間</span>{totalM}<span style={{ fontSize:14 }}>分</span></div>
+          <div style={{ fontSize:11, color:T.textSub, marginTop:2 }}>総勤務時間</div>
+        </Card>
+        <Card style={{ textAlign:"center", padding:14 }}>
+          <div style={{ fontSize:28, fontWeight:800, color:T.amber }}>{records.filter(r=>r.status==='absent').length}</div>
+          <div style={{ fontSize:11, color:T.textSub, marginTop:2 }}>欠勤日数</div>
+        </Card>
+      </div>
+
+      {/* 勤怠一覧 */}
+      <Card>
+        <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>📋 勤怠記録</div>
+        {loading ? <div style={{ textAlign:"center", padding:20, color:T.textDim }}>読み込み中...</div> :
+         records.length === 0 ? <Empty icon="⏱️" title="記録なし" sub="この月の勤怠記録はありません" /> :
+         records.map((r, i) => (
+          <div key={r.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderTop: i>0 ? `1px solid ${T.borderLight}` : "none" }}>
+            <div style={{ width:48, textAlign:"center" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.textMid }}>{new Date(r.date+'T00:00:00').toLocaleDateString('ja-JP', {month:'numeric', day:'numeric'})}</div>
+              <div style={{ fontSize:10, color:T.textDim }}>{['日','月','火','水','木','金','土'][new Date(r.date+'T00:00:00').getDay()]}</div>
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ display:"flex", gap:16, fontSize:13 }}>
+                <span>🟢 {r.clock_in ? new Date(r.clock_in).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'}) : '--:--'}</span>
+                <span>🔴 {r.clock_out ? new Date(r.clock_out).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'}) : '--:--'}</span>
+                {calcWorkHours(r) && <span style={{ color:T.teal, fontWeight:600 }}>⏱️ {calcWorkHours(r)}</span>}
+              </div>
+              {r.note && <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>{r.note}</div>}
+            </div>
+            <div style={{ fontSize:11, padding:"3px 8px", borderRadius:8, background: r.status==='present' ? T.bluePale : r.status==='absent' ? "#FDECEB" : "#FFF8E1", color: r.status==='present' ? T.blue : r.status==='absent' ? T.coral : T.amber, fontWeight:600 }}>
+              {r.status==='present' ? '出勤' : r.status==='absent' ? '欠勤' : '有給'}
+            </div>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+
   return (
     <div style={{ padding:20, maxWidth:700 }}>
       <h2 style={{ fontSize:18, fontWeight:800, margin:"0 0 16px" }}>⚙️ 設定</h2>
@@ -1617,16 +1795,17 @@ export default function ShiftManagerWebApp() {
 
   const renderPage = () => {
     switch(page) {
-      case "home":     return <HomePage user={user} onNav={setPage} />;
-      case "shifts":   return <ShiftTablePage user={user} />;
-      case "request":  return <RequestPage user={user} />;
-      case "approval": return <ApprovalPage user={user} onPendingCountChange={setPendingApprovalCount} />;
-      case "generate": return <GeneratePage user={user} onNav={setPage} />;
-      case "staff":    return <StaffPage user={user} />;
-      case "swap":     return <SwapPage user={user} />;
-      case "notif":    return <NotifPage user={user} />;
-      case "settings": return <SettingsPage user={user} onSwitch={handleSwitch} onLogout={handleLogout} />;
-      case "more":     return <MoreMenuPage user={user} onNav={setPage} onLogout={handleLogout} />;
+      case "home":       return <HomePage user={user} onNav={setPage} />;
+      case "shifts":     return <ShiftTablePage user={user} />;
+      case "request":    return <RequestPage user={user} />;
+      case "approval":   return <ApprovalPage user={user} onPendingCountChange={setPendingApprovalCount} />;
+      case "attendance": return <AttendancePage user={user} />;
+      case "generate":   return <GeneratePage user={user} onNav={setPage} />;
+      case "staff":      return <StaffPage user={user} />;
+      case "swap":       return <SwapPage user={user} />;
+      case "notif":      return <NotifPage user={user} />;
+      case "settings":   return <SettingsPage user={user} onSwitch={handleSwitch} onLogout={handleLogout} />;
+      case "more":       return <MoreMenuPage user={user} onNav={setPage} onLogout={handleLogout} />;
       default:         return <HomePage user={user} onNav={setPage} />;
     }
   };
