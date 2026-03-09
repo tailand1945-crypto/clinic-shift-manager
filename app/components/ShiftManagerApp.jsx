@@ -1527,12 +1527,15 @@ function AttendancePage({ user }) {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [wageSettings, setWageSettings] = useState({}); // staffId -> hourlyWage
   const [showWageEdit, setShowWageEdit] = useState(false);
+  const [stdHoursPerDay, setStdHoursPerDay] = useState(8); // 残業判定ライン（時間）
+  const [overtimeRate, setOvertimeRate] = useState(1.25); // 残業割増率
+  const [defaultWage, setDefaultWage] = useState(1500); // デフォルト時給
   const isManager = user.role === "admin" || user.role === "manager";
   const todayStr = today.toISOString().split('T')[0];
 
-  // 標準労働時間（日8時間）
-  const STD_HOURS_PER_DAY = 8;
-  const OVERTIME_RATE = 1.25; // 残業割増率
+  // 標準労働時間・残業割増率はstateで管理
+  const STD_HOURS_PER_DAY = stdHoursPerDay;
+  const OVERTIME_RATE = overtimeRate;
 
   // デモ用勤怠データ生成
   const genDemoRecords = (staffId, y, m) => {
@@ -1619,7 +1622,7 @@ function AttendancePage({ user }) {
             const worked = (new Date(r.clock_out) - new Date(r.clock_in))/1000/60 - (r.break_minutes||60);
             return acc + Math.max(0, worked - STD_HOURS_PER_DAY*60);
           }, 0);
-          const wage = wageSettings[sp.id] || 1500;
+          const wage = wageSettings[sp.id] || defaultWage;
           const regularPay = Math.round((totalMin - overtimeMin) / 60 * wage);
           const overtimePay = Math.round(overtimeMin / 60 * wage * OVERTIME_RATE);
           summaries.push({
@@ -1639,7 +1642,7 @@ function AttendancePage({ user }) {
       finally { setSummaryLoading(false); }
     };
     loadAll();
-  }, [tab, year, month, staffList, wageSettings]);
+  }, [tab, year, month, staffList, wageSettings, stdHoursPerDay, overtimeRate, defaultWage]);
 
   const calcWorkHours = (r) => {
     if (!r?.clock_in || !r?.clock_out) return null;
@@ -1757,7 +1760,7 @@ function AttendancePage({ user }) {
   const totalOvertimeMin = records.reduce((acc,r) => acc + calcOvertime(r), 0);
   const totalH = Math.floor(totalMin/60); const totalM = Math.round(totalMin%60);
   const otH = Math.floor(totalOvertimeMin/60); const otM = Math.round(totalOvertimeMin%60);
-  const myWage = wageSettings[user.id] || 1500;
+  const myWage = wageSettings[user.id] || defaultWage;
   const regularPay = Math.round((totalMin-totalOvertimeMin)/60*myWage);
   const overtimePay = Math.round(totalOvertimeMin/60*myWage*OVERTIME_RATE);
 
@@ -1881,12 +1884,37 @@ function AttendancePage({ user }) {
               </button>
             </div>
             {showWageEdit && (
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, padding:"8px 12px", background:T.surface, borderRadius:8 }}>
-                <span style={{ fontSize:12, color:T.textSub }}>時給:</span>
-                <input type="number" value={wageSettings[user.id]||1500}
-                  onChange={e => setWageSettings(p=>({...p,[user.id]:parseInt(e.target.value)||1500}))}
-                  style={{ width:80, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
-                <span style={{ fontSize:12, color:T.textSub }}>円 　残業割増: ×{OVERTIME_RATE}</span>
+              <div style={{ padding:"10px 12px", background:T.surface, borderRadius:8, marginBottom:12 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px,1fr))", gap:10 }}>
+                  <div>
+                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>時給（円/h）</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <input type="number" value={wageSettings[user.id]||defaultWage}
+                        onChange={e => setWageSettings(p=>({...p,[user.id]:parseInt(e.target.value)||defaultWage}))}
+                        style={{ width:90, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>円</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>残業割増率</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:12, color:T.textDim }}>×</span>
+                      <input type="number" step="0.01" value={overtimeRate}
+                        onChange={e => setOvertimeRate(parseFloat(e.target.value)||1.25)}
+                        style={{ width:70, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>倍</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>残業判定ライン</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <input type="number" step="0.5" value={stdHoursPerDay}
+                        onChange={e => setStdHoursPerDay(parseFloat(e.target.value)||8)}
+                        style={{ width:65, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>h/日超</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8 }}>
@@ -1903,7 +1931,7 @@ function AttendancePage({ user }) {
                 <div style={{ fontSize:10, color:T.purple, fontWeight:600 }}>合計</div>
               </div>
             </div>
-            <div style={{ fontSize:10, color:T.textDim, marginTop:8 }}>※ 時給¥{myWage}・残業割増{OVERTIME_RATE}倍で計算。実際の給与は雇用契約に基づきます。</div>
+            <div style={{ fontSize:10, color:T.textDim, marginTop:8 }}>※ 時給¥{myWage}・残業割増×{OVERTIME_RATE}倍・{STD_HOURS_PER_DAY}h/日超を残業として計算。実際の給与は雇用契約に基づきます。</div>
           </Card>
 
           {/* 勤怠記録一覧 */}
@@ -1956,17 +1984,57 @@ function AttendancePage({ user }) {
 
           {showWageEdit && (
             <Card style={{ marginBottom:12, padding:14 }}>
-              <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:T.purple }}>💰 スタッフ別時給設定</div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px,1fr))", gap:8 }}>
-                {STAFF_DATA.map(s => (
-                  <div key={s.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:T.surface, borderRadius:8 }}>
-                    <span style={{ fontSize:12, flex:1 }}>{s.name}</span>
-                    <input type="number" value={wageSettings[s.id]||1500}
-                      onChange={e => setWageSettings(p=>({...p,[s.id]:parseInt(e.target.value)||1500}))}
-                      style={{ width:70, padding:"4px 6px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:12, textAlign:"right" }} />
-                    <span style={{ fontSize:11, color:T.textDim }}>円/h</span>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:T.purple }}>💰 給与計算設定</div>
+
+              {/* 共通設定 */}
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:T.textSub, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>共通設定</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px,1fr))", gap:10 }}>
+                  <div style={{ padding:"8px 10px", background:T.surface, borderRadius:8 }}>
+                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>デフォルト時給（未設定時）</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <input type="number" value={defaultWage}
+                        onChange={e => setDefaultWage(parseInt(e.target.value)||1500)}
+                        style={{ width:90, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13, textAlign:"right" }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>円/h</span>
+                    </div>
                   </div>
-                ))}
+                  <div style={{ padding:"8px 10px", background:T.surface, borderRadius:8 }}>
+                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>残業割増率</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:12, color:T.textDim }}>×</span>
+                      <input type="number" step="0.01" value={overtimeRate}
+                        onChange={e => setOvertimeRate(parseFloat(e.target.value)||1.25)}
+                        style={{ width:70, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13, textAlign:"right" }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>倍</span>
+                    </div>
+                  </div>
+                  <div style={{ padding:"8px 10px", background:T.surface, borderRadius:8 }}>
+                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>残業判定ライン</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <input type="number" step="0.5" value={stdHoursPerDay}
+                        onChange={e => setStdHoursPerDay(parseFloat(e.target.value)||8)}
+                        style={{ width:65, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13, textAlign:"right" }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>h/日超で残業</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* スタッフ別時給 */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:600, color:T.textSub, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>スタッフ別時給（個別設定）</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px,1fr))", gap:8 }}>
+                  {STAFF_DATA.map(s => (
+                    <div key={s.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:T.surface, borderRadius:8 }}>
+                      <span style={{ fontSize:12, flex:1 }}>{s.name}</span>
+                      <input type="number" value={wageSettings[s.id]||defaultWage}
+                        onChange={e => setWageSettings(p=>({...p,[s.id]:parseInt(e.target.value)||defaultWage}))}
+                        style={{ width:70, padding:"4px 6px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:12, textAlign:"right" }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>円/h</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </Card>
           )}
@@ -2206,4 +2274,3 @@ export default function ShiftManagerWebApp() {
     </div>
   );
 }
-
