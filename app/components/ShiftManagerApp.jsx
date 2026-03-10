@@ -1478,47 +1478,255 @@ function SwapPage({ user }) {
 // NOTIF / SETTINGS
 // ─────────────────────────────────────────────
 function NotifPage({ user, onUnreadCountChange }) {
+  const isManager = user.role === 'admin' || user.role === 'manager';
+  const today = new Date();
+
+  // デモ用サンプル通知
+  const DEMO_NOTIFS = [
+    { id:'d1', title:'シフト公開', body:`${today.getFullYear()}年${today.getMonth()+1}月のシフトが公開されました。シフト表から確認してください。`, icon:'📅', read:false, created_at: new Date(today.getTime()-1000*60*30).toISOString() },
+    { id:'d2', title:'希望申請 承認', body:'3月の勤務希望申請が承認されました。', icon:'✅', read:false, created_at: new Date(today.getTime()-1000*60*60*3).toISOString() },
+    { id:'d3', title:'シフト交換リクエスト', body:'佐藤 健一さんから3/15のシフト交換リクエストが届いています。', icon:'🔄', read:true, created_at: new Date(today.getTime()-1000*60*60*24).toISOString() },
+    { id:'d4', title:'お知らせ', body:'来週月曜日は全体ミーティングを予定しています。出席をお願いします。', icon:'📢', read:true, created_at: new Date(today.getTime()-1000*60*60*48).toISOString() },
+    { id:'d5', title:'システムメンテナンス', body:'3/20（木）深夜2:00〜4:00 システムメンテナンスを実施します。', icon:'⚙️', read:true, created_at: new Date(today.getTime()-1000*60*60*72).toISOString() },
+  ];
+
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showSend, setShowSend] = useState(false);
+  const [sendForm, setSendForm] = useState({ target:'all', staffId:'', icon:'📢', title:'', body:'' });
+  const [sending, setSending] = useState(false);
 
   const loadNotifs = async () => {
-    if (!supabase||user.id==='new') { setLoading(false); return; }
-    try { const { data } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false }); setNotifs(data||[]); }
-    catch(err) { console.error(err); } finally { setLoading(false); }
+    setLoading(true);
+    if (!supabase) {
+      // デモモード: サンプル通知を表示
+      setNotifs(DEMO_NOTIFS);
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data } = await supabase.from('notifications').select('*')
+        .eq('staff_id', user.id).order('created_at', { ascending:false });
+      setNotifs(data || []);
+    } catch(err) { console.error(err); }
+    finally { setLoading(false); }
   };
   useEffect(() => { loadNotifs(); }, [user.id]);
 
   const markRead = async (id) => {
-    try { await supabase.from('notifications').update({read:true}).eq('id',id); setNotifs(p=>p.map(n=>n.id===id?{...n,read:true}:n)); } catch(err) {}
+    setNotifs(p => p.map(n => n.id===id ? {...n, read:true} : n));
+    if (supabase) {
+      try { await supabase.from('notifications').update({read:true}).eq('id',id); } catch(e) {}
+    }
   };
   const markAllRead = async () => {
-    try { await supabase.from('notifications').update({read:true}).eq('staff_id',user.id).eq('read',false); setNotifs(p=>p.map(n=>({...n,read:true}))); } catch(err) {}
+    setNotifs(p => p.map(n => ({...n, read:true})));
+    if (supabase) {
+      try { await supabase.from('notifications').update({read:true}).eq('staff_id',user.id).eq('read',false); } catch(e) {}
+    }
   };
-  const unreadCount = notifs.filter(n=>!n.read).length;
+  const deleteNotif = async (id, e) => {
+    e.stopPropagation();
+    setNotifs(p => p.filter(n => n.id !== id));
+    if (supabase) {
+      try { await supabase.from('notifications').delete().eq('id', id); } catch(e) {}
+    }
+  };
+  const deleteAll = async () => {
+    if (!window.confirm('すべての通知を削除しますか？')) return;
+    setNotifs([]);
+    if (supabase) {
+      try { await supabase.from('notifications').delete().eq('staff_id', user.id); } catch(e) {}
+    }
+  };
+
+  // 手動通知送信（管理者）
+  const handleSend = async () => {
+    if (!sendForm.title.trim() || !sendForm.body.trim()) return;
+    setSending(true);
+    try {
+      const newNotif = { title:sendForm.title, body:sendForm.body, icon:sendForm.icon, read:false, created_at:new Date().toISOString() };
+      if (!supabase) {
+        // デモモード: 自分の画面に追加
+        setNotifs(p => [{ ...newNotif, id:'demo_'+Date.now(), staff_id:user.id }, ...p]);
+        setShowSend(false);
+        setSendForm({ target:'all', staffId:'', icon:'📢', title:'', body:'' });
+        setSending(false);
+        return;
+      }
+      // Supabase: 対象スタッフ取得して全員に挿入
+      let targets = [];
+      if (sendForm.target === 'all') {
+        const { data: sp } = await supabase.from('staff_profiles').select('id');
+        targets = (sp || []).map(s => s.id);
+      } else {
+        targets = [sendForm.staffId];
+      }
+      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+      await supabase.from('notifications').insert(
+        targets.map(sid => ({ clinic_id:clinicData.id, staff_id:sid, ...newNotif }))
+      );
+      // 自分宛ならリストに追加
+      if (targets.includes(user.id)) {
+        const { data } = await supabase.from('notifications').select('*').eq('staff_id',user.id).order('created_at',{ascending:false});
+        setNotifs(data || []);
+      }
+      setShowSend(false);
+      setSendForm({ target:'all', staffId:'', icon:'📢', title:'', body:'' });
+      alert(`✅ ${targets.length}名に通知を送信しました`);
+    } catch(e) { console.error(e); alert('送信エラー'); }
+    finally { setSending(false); }
+  };
+
+  const unreadCount = notifs.filter(n => !n.read).length;
   useEffect(() => { if (onUnreadCountChange) onUnreadCountChange(unreadCount); }, [unreadCount]);
+
+  const ICON_OPTS = ['📢','📅','✅','❌','🔄','⚠️','⚙️','🎉','💰','📋'];
 
   return (
     <div style={{ padding:20, maxWidth:700 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+      {/* ヘッダー */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, flexWrap:'wrap' }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>🔔 通知</h2>
-        {unreadCount>0 && <span style={{ fontSize:11, fontWeight:700, background:T.blue, color:'#fff', padding:'2px 8px', borderRadius:10 }}>{unreadCount}</span>}
+        {unreadCount > 0 && (
+          <span style={{ fontSize:11, fontWeight:700, background:T.blue, color:'#fff', padding:'2px 8px', borderRadius:10 }}>{unreadCount}</span>
+        )}
         <div style={{ flex:1 }}/>
-        {unreadCount>0 && <Btn size="sm" variant="secondary" onClick={markAllRead}>すべて既読</Btn>}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          {unreadCount > 0 && <Btn size="sm" variant="secondary" onClick={markAllRead}>✓ すべて既読</Btn>}
+          {notifs.length > 0 && <Btn size="sm" variant="secondary" onClick={deleteAll}>🗑️ 全削除</Btn>}
+          {isManager && (
+            <Btn size="sm" variant="primary" onClick={() => setShowSend(p=>!p)}>
+              {showSend ? '閉じる' : '📤 通知を送る'}
+            </Btn>
+          )}
+        </div>
       </div>
-      {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
-       notifs.length===0 ? <Empty icon="🔔" title="通知なし" sub="新しい通知はありません" /> :
-       notifs.map((n,i) => (
-        <Card key={n.id} hover style={{ marginBottom:8, padding:14, opacity:n.read?0.6:1, cursor:"pointer" }} onClick={() => !n.read&&markRead(n.id)}>
-          <div style={{ display:"flex", gap:12 }}>
-            <span style={{ fontSize:24 }}>{n.icon||'🔔'}</span>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontSize:13, fontWeight:n.read?500:700 }}>{n.title}</span><span style={{ fontSize:10, color:T.textDim }}>{new Date(n.created_at).toLocaleDateString('ja-JP')}</span></div>
-              <div style={{ fontSize:12, color:T.textSub, marginTop:4 }}>{n.body}</div>
+
+      {/* デモモード案内 */}
+      {!supabase && (
+        <div style={{ padding:'10px 14px', background:'#FFF8E1', borderRadius:10, border:'1px solid #FDE68A', marginBottom:14, fontSize:12, color:'#92400E' }}>
+          <b>⚠️ デモモード</b>：サンプル通知を表示しています。Supabase接続後は実際の通知が届きます。
+          {isManager && ' 管理者は「📤 通知を送る」でデモ送信をお試しいただけます。'}
+        </div>
+      )}
+
+      {/* 手動送信フォーム（管理者） */}
+      {showSend && isManager && (
+        <Card style={{ marginBottom:16, padding:16, borderLeft:`3px solid ${T.blue}` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.blue, marginBottom:12 }}>📤 通知を送信</div>
+
+          {/* 送信先 */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.textSub, marginBottom:6, fontWeight:600 }}>送信先</div>
+            <div style={{ display:'flex', gap:8 }}>
+              {[{v:'all',l:'👥 全スタッフ'},{v:'individual',l:'👤 個人指定'}].map(({v,l}) => (
+                <button key={v} onClick={() => setSendForm(p=>({...p, target:v}))}
+                  style={{ padding:'6px 14px', borderRadius:8, border:`2px solid ${sendForm.target===v?T.blue:T.border}`, background:sendForm.target===v?T.bluePale:'#fff', color:sendForm.target===v?T.blue:T.textMid, fontSize:12, fontWeight:sendForm.target===v?700:400, cursor:'pointer', fontFamily:FONT }}>
+                  {l}
+                </button>
+              ))}
             </div>
-            {!n.read && <div style={{ width:8, height:8, borderRadius:4, background:T.blue, marginTop:4 }}/>}
+          </div>
+
+          {/* 個人指定 */}
+          {sendForm.target === 'individual' && (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11, color:T.textSub, marginBottom:6, fontWeight:600 }}>スタッフ選択</div>
+              <select value={sendForm.staffId} onChange={e=>setSendForm(p=>({...p,staffId:e.target.value}))}
+                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT }}>
+                <option value="">-- 選択してください --</option>
+                {STAFF_DATA.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* アイコン */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.textSub, marginBottom:6, fontWeight:600 }}>アイコン</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {ICON_OPTS.map(ic => (
+                <button key={ic} onClick={() => setSendForm(p=>({...p,icon:ic}))}
+                  style={{ width:36, height:36, borderRadius:8, border:`2px solid ${sendForm.icon===ic?T.blue:T.border}`, background:sendForm.icon===ic?T.bluePale:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {ic}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* タイトル */}
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:T.textSub, marginBottom:6, fontWeight:600 }}>タイトル</div>
+            <input type="text" value={sendForm.title} onChange={e=>setSendForm(p=>({...p,title:e.target.value}))}
+              placeholder="例：来週のシフトについて"
+              style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, boxSizing:'border-box' }} />
+          </div>
+
+          {/* 本文 */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:11, color:T.textSub, marginBottom:6, fontWeight:600 }}>本文</div>
+            <textarea value={sendForm.body} onChange={e=>setSendForm(p=>({...p,body:e.target.value}))}
+              placeholder="通知の内容を入力してください"
+              rows={3}
+              style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, resize:'vertical', boxSizing:'border-box' }} />
+          </div>
+
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => setShowSend(false)}
+              style={{ flex:1, padding:'9px', borderRadius:8, border:`1px solid ${T.border}`, background:'#fff', color:T.textMid, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:FONT }}>
+              キャンセル
+            </button>
+            <button onClick={handleSend} disabled={sending || !sendForm.title.trim() || !sendForm.body.trim() || (sendForm.target==='individual'&&!sendForm.staffId)}
+              style={{ flex:2, padding:'9px', borderRadius:8, border:'none', background:sending?'#ccc':T.blue, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:FONT }}>
+              {sending ? '送信中...' : `${sendForm.icon} 送信する`}
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* 通知リスト */}
+      {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
+       notifs.length === 0 ? <Empty icon="🔔" title="通知なし" sub="新しい通知はありません" /> :
+       notifs.map((n, i) => (
+        <Card key={n.id} hover style={{ marginBottom:8, padding:14, opacity:n.read?0.65:1, cursor:'pointer', transition:'opacity 0.2s' }}
+          onClick={() => !n.read && markRead(n.id)}>
+          <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+            <span style={{ fontSize:22, flexShrink:0, marginTop:2 }}>{n.icon||'🔔'}</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:13, fontWeight:n.read?500:700, color:T.text }}>{n.title}</span>
+                <span style={{ fontSize:10, color:T.textDim, flexShrink:0 }}>
+                  {new Date(n.created_at).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+                </span>
+              </div>
+              <div style={{ fontSize:12, color:T.textSub, marginTop:4, lineHeight:1.5 }}>{n.body}</div>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+              {!n.read && <div style={{ width:8, height:8, borderRadius:4, background:T.blue }}/>}
+              <button onClick={(e) => deleteNotif(n.id, e)}
+                style={{ background:'none', border:`1px solid ${T.border}`, borderRadius:6, padding:'3px 8px', fontSize:11, color:T.textDim, cursor:'pointer', fontFamily:FONT }}
+                title="削除">
+                🗑️
+              </button>
+            </div>
           </div>
         </Card>
       ))}
+
+      {/* Supabase未設定の場合の導入ガイド */}
+      {!supabase && isManager && (
+        <div style={{ marginTop:20, padding:14, background:T.surface, borderRadius:10, border:`1px solid ${T.border}` }}>
+          <div style={{ fontSize:12, fontWeight:700, color:T.textMid, marginBottom:8 }}>🚀 本格導入について</div>
+          <div style={{ fontSize:11, color:T.textSub, lineHeight:1.8 }}>
+            Supabaseを接続すると以下が利用可能になります：<br/>
+            ✅ 申請承認・却下の自動通知<br/>
+            ✅ シフト公開の全員一斉通知<br/>
+            ✅ シフト交換リクエストの自動通知<br/>
+            ✅ 管理者からの手動通知（全スタッフ・個人）<br/>
+            ✅ リアルタイム未読バッジ更新
+          </div>
+        </div>
+      )}
     </div>
   );
 }
