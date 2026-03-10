@@ -424,8 +424,20 @@ function HomePage({ user, onNav }) {
   const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   useEffect(() => {
-    if (!supabase) return;
+    const _today = new Date();
     const load = async () => {
+      if (!supabase) {
+        // デモモード: サンプルデータをセット
+        const demoNotifs = [
+          { id:'d1', title:'シフト公開', body:`${_today.getFullYear()}年${_today.getMonth()+1}月のシフトが公開されました。`, icon:'📅', read:false, created_at: new Date(_today.getTime()-1000*60*30).toISOString() },
+          { id:'d2', title:'希望申請 承認', body:'3月の勤務希望申請が承認されました。', icon:'✅', read:false, created_at: new Date(_today.getTime()-1000*60*60*3).toISOString() },
+          { id:'d3', title:'シフト交換リクエスト', body:'佐藤 健一さんからシフト交換リクエストが届いています。', icon:'🔄', read:true, created_at: new Date(_today.getTime()-1000*60*60*24).toISOString() },
+        ];
+        setNotifs(demoNotifs);
+        setUnreadNotifs(demoNotifs.filter(n=>!n.read).length);
+        setStats({ workDays:14, nightCount:2, paidLeft:12, reflectRate:94 });
+        return;
+      }
       try {
         const todayStr = `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const startMonth = `${year}-${String(m).padStart(2,'0')}-01`;
@@ -454,6 +466,19 @@ function HomePage({ user, onNav }) {
     };
     load();
   }, [user.id]);
+
+  // デモモード補完: 今後シフトがない場合サンプルを表示
+  const today2 = new Date();
+  const demoUpcoming = upcomingShifts.length === 0 && !supabase ? (() => {
+    const res = [];
+    for (let i=1; i<=5; i++) {
+      const d2 = new Date(today2); d2.setDate(today2.getDate()+i);
+      const dow = d2.getDay();
+      const types = ['day','day','night','day','off'];
+      res.push({ shift_date: d2.toISOString().split('T')[0], shift_type: dow===0||dow===6?'off':types[i%5] });
+    }
+    return res;
+  })() : upcomingShifts;
 
   const todayShift = SHIFTS[todayShiftType] || SHIFTS['off'];
   return (
@@ -486,8 +511,8 @@ function HomePage({ user, onNav }) {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:16 }}>
         <Card>
           <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>📋 今後のシフト</div>
-          {upcomingShifts.length === 0 ? <div style={{ fontSize:13, color:T.textDim, textAlign:'center', padding:20 }}>シフトがありません</div> :
-          upcomingShifts.map((s, i) => {
+          {demoUpcoming.length === 0 ? <div style={{ fontSize:13, color:T.textDim, textAlign:'center', padding:20 }}>シフトがありません</div> :
+          demoUpcoming.map((s, i) => {
             const fd = new Date(s.shift_date);
             return (
               <div key={s.shift_date} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
