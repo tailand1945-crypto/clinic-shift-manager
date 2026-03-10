@@ -682,14 +682,21 @@ function RequestPage({ user }) {
     setReqLoading(true);
     if (!isSupabaseConfigured() || user.id === 'new') {
       // Demo data: managers see all, staff see own
+      const applyCache = r => ({
+        ...r,
+        staffName: r.staffName || STAFF_DATA.find(s=>s.id===r.staff_id)?.name || '不明',
+        pos: r.pos || STAFF_DATA.find(s=>s.id===r.staff_id)?.pos || 'nurse',
+        status: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).status : r.status,
+        reject_reason: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).reason : r.reject_reason,
+      });
       const demoReqs = isManager
-        ? DEMO_REQUESTS.map(r => ({ ...r, staffName: r.staffName || STAFF_DATA.find(s=>s.id===r.staff_id)?.name || '不明', pos: r.pos || STAFF_DATA.find(s=>s.id===r.staff_id)?.pos || 'nurse' }))
-        : DEMO_REQUESTS.filter(r => r.staff_id === user.id).slice(0, 6);
+        ? DEMO_REQUESTS.map(applyCache)
+        : DEMO_REQUESTS.filter(r => r.staff_id === user.id).slice(0, 6).map(applyCache);
       if (demoReqs.length === 0) {
         setMyRequests([
-          { id:"r_demo1", request_date:"2026-05-03", preferred_shift:"off", priority:3, status:"approved", reason:"家族の用事", staffName: user.name, created_at:"2026-04-10T09:00:00Z" },
-          { id:"r_demo2", request_date:"2026-05-10", preferred_shift:"day", priority:2, status:"pending", reason:"", staffName: user.name, created_at:"2026-04-10T10:30:00Z" },
-          { id:"r_demo3", request_date:"2026-05-15", preferred_shift:"morning", priority:1, status:"rejected", reason:"早起きが得意", staffName: user.name, created_at:"2026-04-09T14:00:00Z" },
+          { id:"r_demo1", request_date:"2026-05-03", preferred_shift:"off", priority:3, status: _requestStatusCache.get("r_demo1")?.status || "approved", reason:"家族の用事", staffName: user.name, created_at:"2026-04-10T09:00:00Z" },
+          { id:"r_demo2", request_date:"2026-05-10", preferred_shift:"day", priority:2, status: _requestStatusCache.get("r_demo2")?.status || "pending", reason:"", staffName: user.name, created_at:"2026-04-10T10:30:00Z" },
+          { id:"r_demo3", request_date:"2026-05-15", preferred_shift:"morning", priority:1, status: _requestStatusCache.get("r_demo3")?.status || "rejected", reason:"早起きが得意", staffName: user.name, created_at:"2026-04-09T14:00:00Z" },
         ]);
       } else { setMyRequests(demoReqs); }
       setReqLoading(false);
@@ -704,6 +711,8 @@ function RequestPage({ user }) {
           ...r,
           staffName: r.staff_profiles ? r.staff_profiles.last_name + ' ' + r.staff_profiles.first_name : user.name,
           pos: r.staff_profiles?.position || 'nurse',
+          status: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).status : r.status,
+          reject_reason: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).reason : r.reject_reason,
         })));
       } catch(err) { console.error(err); }
       finally { setReqLoading(false); }
