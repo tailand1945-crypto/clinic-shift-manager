@@ -910,27 +910,33 @@ function ApprovalPage({ user, onPendingCountChange }) {
 
   const handleAction = async (id, action, reason = "") => {
     setProcessing(id);
-    try {
-      const req = requests.find(r => r.id === id);
-      if (isSupabaseConfigured() && req) {
+    // まずローカルstateを即時更新（UIに反映）
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, status: action, reject_reason: reason } : r));
+    const newPending = requests.filter(r => r.id !== id && r.status === 'pending').length + (action === 'pending' ? 1 : 0);
+    onPendingCountChange?.(newPending);
+    // Supabaseへの書き込みは独立して試みる（失敗してもUIは維持）
+    if (isSupabaseConfigured()) {
+      try {
+        const req = requests.find(r => r.id === id);
         await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
-        // Notify staff
-        const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-        const notifBody = action === 'approved'
-          ? `${req.request_date}の希望シフト（${SHIFTS[req.preferred_shift]?.f}）が承認されました`
-          : `${req.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
-        await supabase.from('notifications').insert([{
-          clinic_id: clinicData.id, staff_id: req.staff_id,
-          title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
-          body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
-        }]);
-      }
-      // Update local state
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: action, reject_reason: reason } : r));
-      const newPending = requests.filter(r => r.id !== id && r.status === 'pending').length + (action === 'pending' ? 1 : 0);
-      onPendingCountChange?.(newPending);
-    } catch(err) { console.error(err); }
-    finally { setProcessing(null); setRejectModal(null); setRejectReason(""); }
+        if (req) {
+          try {
+            const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
+            if (clinicData) {
+              const notifBody = action === 'approved'
+                ? `${req.request_date}の希望シフト（${SHIFTS[req.preferred_shift]?.f}）が承認されました`
+                : `${req.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
+              await supabase.from('notifications').insert([{
+                clinic_id: clinicData.id, staff_id: req.staff_id,
+                title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
+                body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
+              }]);
+            }
+          } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
+        }
+      } catch(err) { console.error('DB更新エラー:', err); }
+    }
+    setProcessing(null); setRejectModal(null); setRejectReason("");
   };
 
   const handleBulkApprove = async () => {
