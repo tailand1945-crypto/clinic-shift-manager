@@ -77,6 +77,21 @@ const DEMO_REQUESTS = [
 // セッション中の承認状態キャッシュ（ページ遷移後も保持）
 const _requestStatusCache = new Map();
 
+// clinic_idキャッシュ（毎回DBアクセスしないように）
+let _clinicIdCache = null;
+const getClinicId = async () => {
+  if (_clinicIdCache) return _clinicIdCache;
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const { data } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
+    if (data) { _clinicIdCache = data.id; return _clinicIdCache; }
+    // clinicsレコードがなければ自動作成
+    const { data: created } = await supabase.from('clinics').insert({ name:'丸岡内科小児科クリニック' }).select('id').single();
+    if (created) { _clinicIdCache = created.id; return _clinicIdCache; }
+  } catch(e) { console.warn('getClinicId error:', e); }
+  return null;
+};
+
 
 function genShifts(y, m) {
   const days = new Date(y, m, 0).getDate();
@@ -724,9 +739,9 @@ function RequestPage({ user }) {
     setLoading(true); setError("");
     try {
       if (isSupabaseConfigured() && user.id !== 'new') {
-        const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+        const clinicId = await getClinicId();
         const rows = Object.entries(sel).map(([d, shift]) => ({
-          clinic_id: clinicData.id, staff_id: user.id,
+          clinic_id: clinicId, staff_id: user.id,
           request_date: `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`,
           preferred_shift: shift, priority: pri[d] || 1,
           target_month: `${year}-${String(month).padStart(2,'0')}`, status: 'pending',
@@ -947,13 +962,13 @@ function ApprovalPage({ user, onPendingCountChange }) {
         if (updateErr) console.error('shift_requests update error:', updateErr);
         if (reqSnapshot) {
           try {
-            const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
-            if (clinicData) {
+            const clinicId = await getClinicId();
+            if (clinicId) {
               const notifBody = action === 'approved'
                 ? `${reqSnapshot.request_date}の希望シフト（${SHIFTS[reqSnapshot.preferred_shift]?.f}）が承認されました`
                 : `${reqSnapshot.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
               await supabase.from('notifications').insert([{
-                clinic_id: clinicData.id, staff_id: reqSnapshot.staff_id,
+                clinic_id: clinicId, staff_id: reqSnapshot.staff_id,
                 title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
                 body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
               }]);
@@ -1192,8 +1207,8 @@ function GeneratePage({ user, onNav }) {
     if (!isSupabaseConfigured() || !generatedShifts) { setStep(3); return; }
     setSaving(true); setSaveError("");
     try {
-      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      const { data: staffData } = await supabase.from('staff_profiles').select('id, last_name, first_name').eq('clinic_id', clinicData.id);
+      const clinicId = await getClinicId();
+      const { data: staffData } = await supabase.from('staff_profiles').select('id, last_name, first_name').eq('clinic_id', clinicId);
       const targetMonth = `${year}-${String(month).padStart(2,'0')}`;
       const { data: reqData } = await supabase.from('shift_requests').select('staff_id, request_date, preferred_shift').eq('target_month', targetMonth).eq('status', 'approved');
       const rows = [];
@@ -1205,7 +1220,7 @@ function GeneratePage({ user, onNav }) {
         for (let d = 1; d <= days; d++) {
           const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const req = staffRequests.find(r => r.request_date === dateStr);
-          rows.push({ clinic_id:clinicData.id, staff_id:sp.id, shift_date:dateStr, shift_type:req?req.preferred_shift:(staffShifts?staffShifts[d]||'off':'off'), status:'draft' });
+          rows.push({ clinic_id:clinicId, staff_id:sp.id, shift_date:dateStr, shift_type:req?req.preferred_shift:(staffShifts?staffShifts[d]||'off':'off'), status:'draft' });
         }
       });
       const { error } = await supabase.from('shifts').upsert(rows, { onConflict:'staff_id,shift_date' });
@@ -1218,11 +1233,11 @@ function GeneratePage({ user, onNav }) {
   const publishShifts = async () => {
     if (!isSupabaseConfigured()) return;
     try {
-      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicData.id).eq('status','draft');
-      const { data: staffData } = await supabase.from('staff_profiles').select('id').eq('clinic_id', clinicData.id);
+      const clinicId = await getClinicId();
+      await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicId).eq('status','draft');
+      const { data: staffData } = await supabase.from('staff_profiles').select('id').eq('clinic_id', clinicId);
       if (staffData) {
-        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicData.id, staff_id:s.id, title:'シフト公開', body:`${year}年${month}月のシフトが公開されました`, icon:'📅', read:false })));
+        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicId, staff_id:s.id, title:'シフト公開', body:`${year}年${month}月のシフトが公開されました`, icon:'📅', read:false })));
       }
       alert('シフトを公開しました！');
     } catch(err) { alert('公開に失敗しました: '+err.message); }
@@ -1339,8 +1354,8 @@ function StaffPage({ user }) {
     if (!addForm.last_name || !addForm.first_name) { setAddError('名前を入力してください'); return; }
     setAddSaving(true); setAddError('');
     try {
-      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      const { error } = await supabase.from('staff_profiles').insert({ clinic_id:clinicData.id, last_name:addForm.last_name, first_name:addForm.first_name, position:addForm.position, role:addForm.role, email:addForm.email, night_ok:addForm.night_ok });
+      const clinicId = await getClinicId();
+      const { error } = await supabase.from('staff_profiles').insert({ clinic_id:clinicId, last_name:addForm.last_name, first_name:addForm.first_name, position:addForm.position, role:addForm.role, email:addForm.email, night_ok:addForm.night_ok });
       if (error) throw error;
       setShowAdd(false); setAddForm({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
       const { data } = await supabase.from('staff_profiles').select('*').order('position');
@@ -1472,10 +1487,10 @@ function SwapPage({ user }) {
     if (!form.target_id||!form.requester_date||!form.target_date) { setError('必須項目を入力してください'); return; }
     setSaving(true); setError('');
     try {
-      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-      const { error: err } = await supabase.from('shift_exchanges').insert({ clinic_id:clinicData.id, requester_id:user.id, target_id:form.target_id, requester_date:form.requester_date, target_date:form.target_date, reason:form.reason, status:'pending' });
+      const clinicId = await getClinicId();
+      const { error: err } = await supabase.from('shift_exchanges').insert({ clinic_id:clinicId, requester_id:user.id, target_id:form.target_id, requester_date:form.requester_date, target_date:form.target_date, reason:form.reason, status:'pending' });
       if (err) throw err;
-      await supabase.from('notifications').insert([{ clinic_id:clinicData.id, staff_id:form.target_id, title:'交換リクエスト', body:`${user.name||'スタッフ'}さんから${form.requester_date}のシフト交換リクエストが届いています`, icon:'🔄', read:false }]);
+      await supabase.from('notifications').insert([{ clinic_id:clinicId, staff_id:form.target_id, title:'交換リクエスト', body:`${user.name||'スタッフ'}さんから${form.requester_date}のシフト交換リクエストが届いています`, icon:'🔄', read:false }]);
       setShowForm(false); setForm({ target_id:'', requester_date:'', target_date:'', reason:'' });
       loadData();
     } catch(err) { setError(err.message); } finally { setSaving(false); }
@@ -1500,9 +1515,9 @@ function SwapPage({ user }) {
         } catch(shiftErr) { console.warn('シフト交換DB更新失敗（無視）:', shiftErr); }
         // 通知
         try {
-          const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
-          if (clinicData) {
-            await supabase.from('notifications').insert([{ clinic_id:clinicData.id, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
+          const clinicId = await getClinicId();
+          if (clinicId) {
+            await supabase.from('notifications').insert([{ clinic_id:clinicId, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
           }
         } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
       }
@@ -1656,9 +1671,9 @@ function NotifPage({ user, onUnreadCountChange }) {
       } else {
         targets = [sendForm.staffId];
       }
-      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+      const clinicId = await getClinicId();
       await supabase.from('notifications').insert(
-        targets.map(sid => ({ clinic_id:clinicData.id, staff_id:sid, ...newNotif }))
+        targets.map(sid => ({ clinic_id:clinicId, staff_id:sid, ...newNotif }))
       );
       // 自分宛ならリストに追加
       if (targets.includes(user.id)) {
@@ -2234,9 +2249,9 @@ function AttendancePage({ user }) {
         setRecords(prev => [...prev.filter(r=>r.date!==todayStr), rec]);
         setSaving(false); return;
       }
-      const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
+      const clinicId = await getClinicId();
       const { data } = await supabase.from('attendance_records').insert({
-        clinic_id:clinicData.id, staff_id:user.id, date:todayStr, clock_in:now, status:'present'
+        clinic_id:clinicId, staff_id:user.id, date:todayStr, clock_in:now, status:'present'
       }).select().single();
       setTodayRecord(data); setClockedIn(true);
       setRecords(prev => [...prev.filter(r=>r.date!==todayStr), data]);
