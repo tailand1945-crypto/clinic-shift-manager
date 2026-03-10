@@ -2124,9 +2124,156 @@ function AttendancePage({ user }) {
 }
 
 function SettingsPage({ user, onSwitch, onLogout }) {
-  return (
+  const [modalItem, setModalItem] = useState(null);
+  const [pushNotif, setPushNotif] = useState({ shifts: true, requests: true, exchange: true, reminders: false });
+  const [notifCat, setNotifCat] = useState({ approval: true, rejection: true, change: true, swap: true, system: false });
+  const [clinicInfo, setClinicInfo] = useState({ name: "丸岡内科小児科クリニック", address: "神戸市三宮", phone: "", email: "" });
+  const [staffingRules, setStaffingRules] = useState({ minDoctors: 1, minNurses: 2, maxConsecDays: 5, minRestHours: 11 });
 
+  const modalContent = {
+    "プッシュ通知設定": (
+      <div>
+        <p style={{ fontSize:12, color:T.textSub, marginBottom:16 }}>通知を受け取る項目を選択してください。</p>
+        {[
+          ["shifts", "シフト変更通知", "確定シフトが変更されたとき"],
+          ["requests", "希望申請の結果", "提出した希望が承認/却下されたとき"],
+          ["exchange", "シフト交換通知", "交換申請の結果・交換依頼が届いたとき"],
+          ["reminders", "シフトリマインダー", "勤務開始2時間前にリマインド"],
+        ].map(([key, label, desc]) => (
+          <div key={key} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.borderLight}` }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600 }}>{label}</div>
+              <div style={{ fontSize:11, color:T.textDim }}>{desc}</div>
+            </div>
+            <div onClick={() => setPushNotif(p=>({...p,[key]:!p[key]}))}
+              style={{ width:42, height:24, borderRadius:12, background:pushNotif[key]?T.blue:T.border, cursor:"pointer", position:"relative", transition:"background 0.2s" }}>
+              <div style={{ position:"absolute", top:3, left:pushNotif[key]?20:3, width:18, height:18, borderRadius:9, background:"white", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    ),
+    "通知カテゴリー": (
+      <div>
+        <p style={{ fontSize:12, color:T.textSub, marginBottom:16 }}>受信する通知のカテゴリーを設定します。</p>
+        {[
+          ["approval", "✅ 承認通知", "希望・交換が承認されたとき"],
+          ["rejection", "❌ 却下通知", "希望・交換が却下されたとき"],
+          ["change", "📅 シフト変更", "シフト内容が変更されたとき"],
+          ["swap", "🔄 交換リクエスト", "他スタッフから交換依頼が届いたとき"],
+          ["system", "⚙️ システム通知", "メンテナンス・重要なお知らせ"],
+        ].map(([key, label, desc]) => (
+          <div key={key} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.borderLight}` }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600 }}>{label}</div>
+              <div style={{ fontSize:11, color:T.textDim }}>{desc}</div>
+            </div>
+            <div onClick={() => setNotifCat(p=>({...p,[key]:!p[key]}))}
+              style={{ width:42, height:24, borderRadius:12, background:notifCat[key]?T.blue:T.border, cursor:"pointer", position:"relative", transition:"background 0.2s" }}>
+              <div style={{ position:"absolute", top:3, left:notifCat[key]?20:3, width:18, height:18, borderRadius:9, background:"white", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    ),
+    "クリニック情報": (
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <p style={{ fontSize:12, color:T.textSub, margin:"0 0 4px" }}>クリニックの基本情報を設定します。（管理者のみ）</p>
+        {[["name","クリニック名"],["address","住所"],["phone","電話番号"],["email","メールアドレス"]].map(([key,label]) => (
+          <div key={key}>
+            <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>{label}</div>
+            <input value={clinicInfo[key]} onChange={e=>setClinicInfo(p=>({...p,[key]:e.target.value}))}
+              style={{ width:"100%", padding:"8px 12px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, boxSizing:"border-box" }} />
+          </div>
+        ))}
+        <Btn style={{ marginTop:4 }} onClick={()=>alert("クリニック情報を保存しました")}>保存する</Btn>
+      </div>
+    ),
+    "シフトテンプレート": (
+      <div>
+        <p style={{ fontSize:12, color:T.textSub, marginBottom:12 }}>よく使うシフトパターンをテンプレートとして登録できます。</p>
+        {[
+          { name:"標準週パターン", desc:"月〜金 日番・土曜隔週" },
+          { name:"夜勤週パターン", desc:"火・木・土 夜勤" },
+          { name:"パート週パターン", desc:"月・水・金 日番" },
+        ].map((t,i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`, marginBottom:8, background:T.surface }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600 }}>{t.name}</div>
+              <div style={{ fontSize:11, color:T.textDim }}>{t.desc}</div>
+            </div>
+            <button style={{ fontSize:11, color:T.blue, background:"none", border:`1px solid ${T.blue}`, borderRadius:6, padding:"4px 10px", cursor:"pointer", fontFamily:FONT }}>編集</button>
+          </div>
+        ))}
+        <Btn variant="secondary" onClick={()=>alert("テンプレート追加機能は今後実装予定です")}>＋ テンプレート追加</Btn>
+      </div>
+    ),
+    "人員配置ルール": (
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <p style={{ fontSize:12, color:T.textSub, margin:"0 0 4px" }}>自動生成時に使用する人員配置ルールを設定します。</p>
+        {[
+          ["minDoctors","最低医師数（人/日）","人"],
+          ["minNurses","最低看護師数（人/日）","人"],
+          ["maxConsecDays","最大連続勤務日数","日"],
+          ["minRestHours","最低インターバル時間","時間"],
+        ].map(([key,label,unit]) => (
+          <div key={key} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:13 }}>{label}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <input type="number" value={staffingRules[key]} onChange={e=>setStaffingRules(p=>({...p,[key]:parseInt(e.target.value)||0}))}
+                style={{ width:65, padding:"6px 8px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, textAlign:"right", fontFamily:FONT }} />
+              <span style={{ fontSize:12, color:T.textDim }}>{unit}</span>
+            </div>
+          </div>
+        ))}
+        <Btn style={{ marginTop:4 }} onClick={()=>alert("人員配置ルールを保存しました")}>保存する</Btn>
+      </div>
+    ),
+    "利用規約": (
+      <div style={{ maxHeight:320, overflowY:"auto", fontSize:12, color:T.textMid, lineHeight:1.8 }}>
+        <p><b>Clinic Shift Manager 利用規約</b></p>
+        <p>本サービスは、丸岡内科小児科クリニックのスタッフ向けシフト管理システムです。</p>
+        <p><b>1. 利用目的</b><br/>本サービスはシフト管理・勤怠管理を目的としています。</p>
+        <p><b>2. アカウント管理</b><br/>各ユーザーは自身のアカウント情報を適切に管理する責任を負います。ログイン用マジックリンクは第三者と共有しないでください。</p>
+        <p><b>3. 禁止事項</b><br/>・他スタッフのデータへの不正アクセス<br/>・虚偽の勤怠データの入力<br/>・システムの改ざん・不正利用</p>
+        <p><b>4. データの取り扱い</b><br/>入力されたデータはSupabase（PostgreSQL）に安全に保管されます。クリニック外への無断提供は行いません。</p>
+        <p><b>5. 免責事項</b><br/>給与計算はあくまで概算です。実際の給与は雇用契約に基づきます。</p>
+        <p style={{ color:T.textDim }}>制作・運営：ST INTELLIGENCE / 船越 泰</p>
+      </div>
+    ),
+    "プライバシーポリシー": (
+      <div style={{ maxHeight:320, overflowY:"auto", fontSize:12, color:T.textMid, lineHeight:1.8 }}>
+        <p><b>プライバシーポリシー</b></p>
+        <p>Clinic Shift Manager（以下「本サービス」）は、ユーザーのプライバシーを尊重します。</p>
+        <p><b>収集する情報</b><br/>・メールアドレス（認証のみに使用）<br/>・シフト勤務情報<br/>・出退勤打刻データ</p>
+        <p><b>利用目的</b><br/>・シフトの管理・表示<br/>・勤怠・給与計算<br/>・通知の送信</p>
+        <p><b>データ保管</b><br/>データはSupabase（クラウドDBサービス）に保管されます。アクセスはクリニック管理者に限定されます。</p>
+        <p><b>第三者提供</b><br/>収集したデータを第三者に販売・提供することは一切ありません。</p>
+        <p><b>お問い合わせ</b><br/>ST INTELLIGENCE / 船越 泰</p>
+      </div>
+    ),
+  };
+
+  const menuItems = ["プッシュ通知設定","通知カテゴリー",...(user.role==="admin"?["クリニック情報","シフトテンプレート","人員配置ルール"]:[]),"利用規約","プライバシーポリシー"];
+  const icons = { "プッシュ通知設定":"🔔","通知カテゴリー":"🗂️","クリニック情報":"🏥","シフトテンプレート":"📋","人員配置ルール":"👥","利用規約":"📄","プライバシーポリシー":"🔒" };
+
+  return (
     <div style={{ padding:20, maxWidth:700 }}>
+      {/* 設定モーダル */}
+      {modalItem && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+          onClick={()=>setModalItem(null)}>
+          <div style={{ background:"white", borderRadius:16, padding:24, width:"100%", maxWidth:480, boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ fontSize:15, fontWeight:700 }}>{icons[modalItem]} {modalItem}</div>
+              <button onClick={()=>setModalItem(null)} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:T.textDim, padding:"0 4px" }}>×</button>
+            </div>
+            {modalContent[modalItem]}
+          </div>
+        </div>
+      )}
+
       <h2 style={{ fontSize:18, fontWeight:800, margin:"0 0 16px" }}>⚙️ 設定</h2>
       <Card style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
         <div style={{ width:52, height:52, borderRadius:14, background:POSITIONS[user.pos]?.bg||T.surface, color:POSITIONS[user.pos]?.c||T.textMid, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700 }}>{user.name[0]}</div>
@@ -2147,15 +2294,17 @@ function SettingsPage({ user, onSwitch, onLogout }) {
         </div>
       </Card>
       <Card style={{ marginBottom:16 }}>
-        {["プッシュ通知設定","通知カテゴリー",...(user.role==="admin"?["クリニック情報","シフトテンプレート","人員配置ルール"]:[]),"利用規約","プライバシーポリシー"].map((item,i) => (
-          <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
-            <span style={{ fontSize:13, color:T.textMid }}>{item}</span>
-            <span style={{ fontSize:12, color:T.textDim }}>→</span>
+        {menuItems.map((item,i) => (
+          <div key={i} onClick={()=>setModalItem(item)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 4px", borderTop:i>0?`1px solid ${T.borderLight}`:"none", cursor:"pointer", borderRadius:8, transition:"background 0.15s" }}
+            onMouseEnter={e=>e.currentTarget.style.background=T.surface}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <span style={{ fontSize:13, color:T.textMid }}>{icons[item]} {item}</span>
+            <span style={{ fontSize:14, color:T.blue }}>→</span>
           </div>
         ))}
       </Card>
       <Btn variant="danger" onClick={onLogout} style={{ width:"100%" }}>ログアウト</Btn>
-      <div style={{ textAlign:"center", fontSize:11, color:T.textDim, marginTop:12 }}>Version 2.1.0 {isSupabaseConfigured() ? "🟢 Supabase接続済" : "🟡 デモモード"}</div>
+      <div style={{ textAlign:"center", fontSize:11, color:T.textDim, marginTop:12 }}>Version 3.0.0 {isSupabaseConfigured() ? "🟢 Supabase接続済" : "🟡 デモモード"}</div>
     </div>
   );
 }
