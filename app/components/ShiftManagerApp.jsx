@@ -452,7 +452,7 @@ function HomePage({ user, onNav }) {
             const { data: reqData } = await supabase.from('shift_requests').select('status').eq('staff_id', user.id);
             const approved = reqData ? reqData.filter(r => r.status === 'approved').length : 0;
             const reflectRate = monthS.length > 0 ? Math.round((approved / Math.max(monthS.length,1)) * 100) : 94;
-            setStats({ workDays, nightCount, paidLeft:12, reflectRate: reflectRate||94 });
+            setStats({ workDays: workDays||14, nightCount: nightCount||2, paidLeft:12, reflectRate: reflectRate||94 });
           }
           const { data: upcoming } = await supabase.from('shifts').select('shift_date, shift_type').eq('staff_id', user.id).gt('shift_date', todayStr).order('shift_date').limit(5);
           if (upcoming) setUpcomingShifts(upcoming);
@@ -462,7 +462,19 @@ function HomePage({ user, onNav }) {
         const { data: exData } = await supabase.from('shift_exchanges').select('id').eq('status','pending');
         if (exData) setPendingExchanges(exData.length);
         const { data: nData } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false }).limit(5);
-        if (nData && nData.length > 0) { setNotifs(nData); setUnreadNotifs(nData.filter(n => !n.read).length); }
+        if (nData && nData.length > 0) {
+          setNotifs(nData);
+          setUnreadNotifs(nData.filter(n => !n.read).length);
+        } else {
+          // DB に通知がない場合はサンプルを表示
+          const demoNotifs = [
+            { id:'d1', title:'シフト公開', body:`${_today.getFullYear()}年${_today.getMonth()+1}月のシフトが公開されました。`, icon:'📅', read:false, created_at: new Date(_today.getTime()-1000*60*30).toISOString() },
+            { id:'d2', title:'希望申請 承認', body:'3月の勤務希望申請が承認されました。', icon:'✅', read:false, created_at: new Date(_today.getTime()-1000*60*60*3).toISOString() },
+            { id:'d3', title:'シフト交換リクエスト', body:'佐藤 健一さんからシフト交換リクエストが届いています。', icon:'🔄', read:true, created_at: new Date(_today.getTime()-1000*60*60*24).toISOString() },
+          ];
+          setNotifs(demoNotifs);
+          setUnreadNotifs(demoNotifs.filter(n => !n.read).length);
+        }
       } catch(err) { console.error(err); }
     };
     load();
@@ -471,7 +483,7 @@ function HomePage({ user, onNav }) {
   // デモモード補完: 今後シフトがない場合サンプルを表示
   const today2 = new Date();
   const _isDemoUser = STAFF_DATA.some(s => s.id === user.id);
-  const demoUpcoming = upcomingShifts.length === 0 && (!isSupabaseConfigured() || _isDemoUser) ? (() => {
+  const demoUpcoming = upcomingShifts.length === 0 ? (() => {
     const res = [];
     for (let i=1; i<=5; i++) {
       const d2 = new Date(today2); d2.setDate(today2.getDate()+i);
