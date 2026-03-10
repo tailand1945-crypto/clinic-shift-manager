@@ -910,31 +910,38 @@ function ApprovalPage({ user, onPendingCountChange }) {
 
   const handleAction = async (id, action, reason = "") => {
     setProcessing(id);
-    // まずローカルstateを即時更新（UIに反映）
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status: action, reject_reason: reason } : r));
-    const newPending = requests.filter(r => r.id !== id && r.status === 'pending').length + (action === 'pending' ? 1 : 0);
-    onPendingCountChange?.(newPending);
+    // ローカルstate即時更新（関数型で最新stateを参照）
+    let reqSnapshot = null;
+    setRequests(prev => {
+      reqSnapshot = prev.find(r => r.id === id);
+      const updated = prev.map(r => r.id === id ? { ...r, status: action, reject_reason: reason } : r);
+      const newPending = updated.filter(r => r.status === 'pending').length;
+      onPendingCountChange?.(newPending);
+      return updated;
+    });
     // Supabaseへの書き込みは独立して試みる（失敗してもUIは維持）
     if (isSupabaseConfigured()) {
-      try {
-        const req = requests.find(r => r.id === id);
-        await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
-        if (req) {
-          try {
-            const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
-            if (clinicData) {
-              const notifBody = action === 'approved'
-                ? `${req.request_date}の希望シフト（${SHIFTS[req.preferred_shift]?.f}）が承認されました`
-                : `${req.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
-              await supabase.from('notifications').insert([{
-                clinic_id: clinicData.id, staff_id: req.staff_id,
-                title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
-                body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
-              }]);
-            }
-          } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
-        }
-      } catch(err) { console.error('DB更新エラー:', err); }
+      // reqSnapshotはsetRequests内で同期的にセットされるが念のためフォールバック
+      setTimeout(async () => {
+        try {
+          await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
+          if (reqSnapshot) {
+            try {
+              const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
+              if (clinicData) {
+                const notifBody = action === 'approved'
+                  ? `${reqSnapshot.request_date}の希望シフト（${SHIFTS[reqSnapshot.preferred_shift]?.f}）が承認されました`
+                  : `${reqSnapshot.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
+                await supabase.from('notifications').insert([{
+                  clinic_id: clinicData.id, staff_id: reqSnapshot.staff_id,
+                  title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
+                  body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
+                }]);
+              }
+            } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
+          }
+        } catch(err) { console.error('DB更新エラー:', err); }
+      }, 0);
     }
     setProcessing(null); setRejectModal(null); setRejectReason("");
   };
