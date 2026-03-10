@@ -625,6 +625,7 @@ function RequestPage({ user }) {
   const [error, setError] = useState("");
   const [myRequests, setMyRequests] = useState([]);
   const [reqLoading, setReqLoading] = useState(false);
+  const isManager = user.role === "admin" || user.role === "manager";
   const year=2026, month=5;
   const days = getDIM(year, month);
 
@@ -637,28 +638,35 @@ function RequestPage({ user }) {
     if (tab !== 1) return;
     setReqLoading(true);
     if (!supabase || user.id === 'new') {
-      // Demo data for current user
-      const myDemoRequests = DEMO_REQUESTS.filter(r => r.staff_id === user.id).slice(0, 6);
-      // If no demo data for this user, show sample
-      if (myDemoRequests.length === 0) {
+      // Demo data: managers see all, staff see own
+      const demoReqs = isManager
+        ? DEMO_REQUESTS.map(r => ({ ...r, staffName: r.staffName || STAFF_DATA.find(s=>s.id===r.staff_id)?.name || '不明', pos: r.pos || STAFF_DATA.find(s=>s.id===r.staff_id)?.pos || 'nurse' }))
+        : DEMO_REQUESTS.filter(r => r.staff_id === user.id).slice(0, 6);
+      if (demoReqs.length === 0) {
         setMyRequests([
-          { id:"r_demo1", request_date:"2026-05-03", preferred_shift:"off", priority:3, status:"approved", reason:"家族の用事", created_at:"2026-04-10T09:00:00Z" },
-          { id:"r_demo2", request_date:"2026-05-10", preferred_shift:"day", priority:2, status:"pending", reason:"", created_at:"2026-04-10T10:30:00Z" },
-          { id:"r_demo3", request_date:"2026-05-15", preferred_shift:"morning", priority:1, status:"rejected", reason:"早起きが得意", created_at:"2026-04-09T14:00:00Z" },
+          { id:"r_demo1", request_date:"2026-05-03", preferred_shift:"off", priority:3, status:"approved", reason:"家族の用事", staffName: user.name, created_at:"2026-04-10T09:00:00Z" },
+          { id:"r_demo2", request_date:"2026-05-10", preferred_shift:"day", priority:2, status:"pending", reason:"", staffName: user.name, created_at:"2026-04-10T10:30:00Z" },
+          { id:"r_demo3", request_date:"2026-05-15", preferred_shift:"morning", priority:1, status:"rejected", reason:"早起きが得意", staffName: user.name, created_at:"2026-04-09T14:00:00Z" },
         ]);
-      } else { setMyRequests(myDemoRequests); }
+      } else { setMyRequests(demoReqs); }
       setReqLoading(false);
       return;
     }
     const load = async () => {
       try {
-        const { data } = await supabase.from('shift_requests').select('*').eq('staff_id', user.id).eq('target_month', `${year}-${String(month).padStart(2,'0')}`).order('request_date');
-        setMyRequests(data || []);
+        let query = supabase.from('shift_requests').select('*, staff_profiles(last_name, first_name, position)').eq('target_month', `${year}-${String(month).padStart(2,'0')}`).order('request_date');
+        if (!isManager) query = query.eq('staff_id', user.id);
+        const { data } = await query;
+        setMyRequests((data || []).map(r => ({
+          ...r,
+          staffName: r.staff_profiles ? r.staff_profiles.last_name + ' ' + r.staff_profiles.first_name : user.name,
+          pos: r.staff_profiles?.position || 'nurse',
+        })));
       } catch(err) { console.error(err); }
       finally { setReqLoading(false); }
     };
     load();
-  }, [tab, user.id]);
+  }, [tab, user.id, isManager]);
 
   const handleSubmit = async () => {
     setLoading(true); setError("");
@@ -778,7 +786,16 @@ function RequestPage({ user }) {
                       </div>
                       <ShiftBadge type={r.preferred_shift} size="md" />
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:600 }}>{SHIFTS[r.preferred_shift]?.f}</div>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                          <div style={{ fontSize:13, fontWeight:600 }}>{SHIFTS[r.preferred_shift]?.f}</div>
+                          {r.staffName && (
+                            <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                              <div style={{ width:20, height:20, borderRadius:6, background:POSITIONS[r.pos]?.bg||T.surface, color:POSITIONS[r.pos]?.c||T.textMid, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700 }}>{r.staffName[0]}</div>
+                              <span style={{ fontSize:12, color:T.textMid, fontWeight:600 }}>{r.staffName}</span>
+                              {r.pos && <PosBadge pos={r.pos} size="xs" />}
+                            </div>
+                          )}
+                        </div>
                         {r.reason && <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>理由: {r.reason}</div>}
                         <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
                           {Array.from({length:r.priority||1}).map((_,j) => <span key={j} style={{ fontSize:10, color:r.priority>=3?T.coral:r.priority>=2?T.amber:T.textDim }}>★</span>)}
