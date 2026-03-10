@@ -425,8 +425,9 @@ function HomePage({ user, onNav }) {
 
   useEffect(() => {
     const _today = new Date();
+    const isDemoUser = STAFF_DATA.some(s => s.id === user.id);
     const load = async () => {
-      if (!isSupabaseConfigured()) {
+      if (!isSupabaseConfigured() || isDemoUser) {
         // デモモード: サンプルデータをセット
         const demoNotifs = [
           { id:'d1', title:'シフト公開', body:`${_today.getFullYear()}年${_today.getMonth()+1}月のシフトが公開されました。`, icon:'📅', read:false, created_at: new Date(_today.getTime()-1000*60*30).toISOString() },
@@ -469,7 +470,8 @@ function HomePage({ user, onNav }) {
 
   // デモモード補完: 今後シフトがない場合サンプルを表示
   const today2 = new Date();
-  const demoUpcoming = upcomingShifts.length === 0 && !isSupabaseConfigured() ? (() => {
+  const _isDemoUser = STAFF_DATA.some(s => s.id === user.id);
+  const demoUpcoming = upcomingShifts.length === 0 && (!isSupabaseConfigured() || _isDemoUser) ? (() => {
     const res = [];
     for (let i=1; i<=5; i++) {
       const d2 = new Date(today2); d2.setDate(today2.getDate()+i);
@@ -1523,7 +1525,8 @@ function NotifPage({ user, onUnreadCountChange }) {
 
   const loadNotifs = async () => {
     setLoading(true);
-    if (!isSupabaseConfigured()) {
+    const isDemoUser = STAFF_DATA.some(s => s.id === user.id);
+    if (!isSupabaseConfigured() || isDemoUser) {
       // デモモード: サンプル通知を表示
       setNotifs(DEMO_NOTIFS);
       setLoading(false);
