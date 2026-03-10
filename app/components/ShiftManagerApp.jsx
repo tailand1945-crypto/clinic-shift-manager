@@ -1453,21 +1453,31 @@ function SwapPage({ user }) {
   };
 
   const handleApprove = async (id, approved) => {
+    // まずローカルstateを即時更新（UIに反映）
+    setSwaps(prev => prev.map(s => s.id===id ? {...s, status: approved?'approved':'rejected'} : s));
+    // DB書き込みは独立して試みる
     try {
       const sw = swaps.find(s=>s.id===id);
       await supabase.from('shift_exchanges').update({ status:approved?'approved':'rejected' }).eq('id', id);
       if (approved && sw) {
-        const { data: reqShift } = await supabase.from('shifts').select('shift_type').eq('staff_id',sw.requester_id).eq('shift_date',sw.requester_date).single();
-        const { data: tgtShift } = await supabase.from('shifts').select('shift_type').eq('staff_id',sw.target_id).eq('shift_date',sw.target_date).single();
-        if (reqShift&&tgtShift) {
-          await supabase.from('shifts').update({shift_type:tgtShift.shift_type}).eq('staff_id',sw.requester_id).eq('shift_date',sw.requester_date);
-          await supabase.from('shifts').update({shift_type:reqShift.shift_type}).eq('staff_id',sw.target_id).eq('shift_date',sw.target_date);
-        }
-        const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
-        await supabase.from('notifications').insert([{ clinic_id:clinicData.id, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
+        // シフトを実際に交換
+        try {
+          const { data: reqShift } = await supabase.from('shifts').select('shift_type').eq('staff_id',sw.requester_id).eq('shift_date',sw.requester_date).maybeSingle();
+          const { data: tgtShift } = await supabase.from('shifts').select('shift_type').eq('staff_id',sw.target_id).eq('shift_date',sw.target_date).maybeSingle();
+          if (reqShift&&tgtShift) {
+            await supabase.from('shifts').update({shift_type:tgtShift.shift_type}).eq('staff_id',sw.requester_id).eq('shift_date',sw.requester_date);
+            await supabase.from('shifts').update({shift_type:reqShift.shift_type}).eq('staff_id',sw.target_id).eq('shift_date',sw.target_date);
+          }
+        } catch(shiftErr) { console.warn('シフト交換DB更新失敗（無視）:', shiftErr); }
+        // 通知
+        try {
+          const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
+          if (clinicData) {
+            await supabase.from('notifications').insert([{ clinic_id:clinicData.id, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
+          }
+        } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
       }
-      loadData();
-    } catch(err) { console.error(err); }
+    } catch(err) { console.error('交換DB更新エラー:', err); }
   };
 
   const incoming = swaps.filter(s=>s.target_id===user.id);
