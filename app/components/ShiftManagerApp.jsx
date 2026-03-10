@@ -1752,6 +1752,8 @@ function AttendancePage({ user }) {
   const [defaultAge, setDefaultAge] = useState(35); // デフォルト年齢
   const [showPayslip, setShowPayslip] = useState(false); // 給与明細モーダル
   const [payslipTarget, setPayslipTarget] = useState(null); // 給与明細対象
+  const [editRecord, setEditRecord] = useState(null); // 編集中レコード
+  const [editSaving, setEditSaving] = useState(false);
   const isManager = user.role === "admin" || user.role === "manager";
   const todayStr = today.toISOString().split('T')[0];
 
@@ -1837,7 +1839,8 @@ function AttendancePage({ user }) {
           const workDays = recs.filter(r => r.clock_in).length;
           const totalMin = recs.reduce((acc, r) => {
             if (!r.clock_in || !r.clock_out) return acc;
-            return acc + (new Date(r.clock_out) - new Date(r.clock_in))/1000/60 - (r.break_minutes||60);
+            const net = Math.max(0, (new Date(r.clock_out) - new Date(r.clock_in))/1000/60 - (r.break_minutes||60));
+            return acc + net;
           }, 0);
           const overtimeMin = recs.reduce((acc, r) => {
             if (!r.clock_in || !r.clock_out) return acc;
@@ -1869,7 +1872,8 @@ function AttendancePage({ user }) {
   const calcWorkHours = (r) => {
     if (!r?.clock_in || !r?.clock_out) return null;
     const diff = (new Date(r.clock_out) - new Date(r.clock_in)) / 1000 / 60;
-    const net = diff - (r.break_minutes || 60);
+    const net = Math.max(0, diff - (r.break_minutes || 60)); // マイナス防止
+    if (net === 0) return '0時間0分';
     const h = Math.floor(net/60); const m = Math.round(net%60);
     return `${h}時間${m}分`;
   };
@@ -1878,6 +1882,44 @@ function AttendancePage({ user }) {
     if (!r?.clock_in || !r?.clock_out) return 0;
     const net = (new Date(r.clock_out) - new Date(r.clock_in))/1000/60 - (r.break_minutes||60);
     return Math.max(0, net - STD_HOURS_PER_DAY*60);
+  };
+
+  // 管理者による勤怠編集保存
+  const handleSaveEdit = async () => {
+    if (!editRecord) return;
+    setEditSaving(true);
+    try {
+      // 時刻文字列 → ISO変換
+      const toISO = (dateStr, timeStr) => {
+        if (!timeStr) return null;
+        const [h, m] = timeStr.split(':').map(Number);
+        const d = new Date(dateStr + 'T00:00:00');
+        d.setHours(h, m, 0, 0);
+        return d.toISOString();
+      };
+      const updated = {
+        ...editRecord,
+        clock_in:  editRecord._inTime  ? toISO(editRecord.date, editRecord._inTime)  : editRecord.clock_in,
+        clock_out: editRecord._outTime ? toISO(editRecord.date, editRecord._outTime) : editRecord.clock_out,
+        break_minutes: parseInt(editRecord.break_minutes) || 60,
+        status: editRecord.status,
+        note: editRecord.note || '',
+      };
+      delete updated._inTime; delete updated._outTime;
+      if (supabase) {
+        await supabase.from('attendance_records').update({
+          clock_in: updated.clock_in, clock_out: updated.clock_out,
+          break_minutes: updated.break_minutes, status: updated.status, note: updated.note,
+        }).eq('id', editRecord.id);
+      }
+      setRecords(prev => prev.map(r => r.id === updated.id ? updated : r));
+      if (updated.date === todayStr) {
+        setTodayRecord(updated);
+        setClockedIn(!!updated.clock_in && !updated.clock_out);
+      }
+      setEditRecord(null);
+    } catch(e) { console.error(e); }
+    finally { setEditSaving(false); }
   };
 
   const handleClockIn = async () => {
@@ -2117,7 +2159,7 @@ function AttendancePage({ user }) {
   const totalDays = records.filter(r=>r.clock_in).length;
   const totalMin = records.reduce((acc,r) => {
     if (!r.clock_in||!r.clock_out) return acc;
-    return acc + (new Date(r.clock_out)-new Date(r.clock_in))/1000/60-(r.break_minutes||60);
+    return acc + Math.max(0, (new Date(r.clock_out)-new Date(r.clock_in))/1000/60-(r.break_minutes||60));
   }, 0);
   const totalOvertimeMin = records.reduce((acc,r) => acc + calcOvertime(r), 0);
   const totalH = Math.floor(totalMin/60); const totalM = Math.round(totalMin%60);
@@ -2136,6 +2178,92 @@ function AttendancePage({ user }) {
   return (
     <div style={{ padding:20, maxWidth:1000 }}>
       {showPayslip && <PayslipModal data={payslipTarget} onClose={()=>setShowPayslip(false)} />}
+
+      {/* 勤怠編集モーダル（管理者） */}
+      {editRecord && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setEditRecord(null)}>
+          <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:T.navy}}>✏️ 勤怠記録の編集</div>
+                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{editRecord.date}（{selectedStaffName}）</div>
+              </div>
+              <button onClick={()=>setEditRecord(null)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:T.textDim}}>×</button>
+            </div>
+
+            {/* 出勤時刻 */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6}}>🟢 出勤時刻</div>
+              <input type="time" value={editRecord._inTime || (editRecord.clock_in ? new Date(editRecord.clock_in).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',hour12:false}) : '')}
+                onChange={e=>setEditRecord(p=>({...p, _inTime:e.target.value}))}
+                style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:14,fontFamily:FONT,boxSizing:"border-box"}} />
+            </div>
+
+            {/* 退勤時刻 */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6}}>🔴 退勤時刻</div>
+              <input type="time" value={editRecord._outTime || (editRecord.clock_out ? new Date(editRecord.clock_out).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',hour12:false}) : '')}
+                onChange={e=>setEditRecord(p=>({...p, _outTime:e.target.value}))}
+                style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:14,fontFamily:FONT,boxSizing:"border-box"}} />
+            </div>
+
+            {/* 休憩時間 */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6}}>☕ 休憩時間（分）</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="number" min="0" max="480" value={editRecord.break_minutes ?? 60}
+                  onChange={e=>setEditRecord(p=>({...p, break_minutes:e.target.value}))}
+                  style={{width:90,padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:14,textAlign:"right"}} />
+                <span style={{fontSize:12,color:T.textDim}}>分</span>
+                <div style={{display:"flex",gap:6,marginLeft:8}}>
+                  {[0,30,45,60,90].map(v=>(
+                    <button key={v} onClick={()=>setEditRecord(p=>({...p,break_minutes:v}))}
+                      style={{fontSize:11,padding:"3px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:editRecord.break_minutes==v?T.navy:"#fff",color:editRecord.break_minutes==v?"#fff":T.textMid,cursor:"pointer",fontFamily:FONT}}>
+                      {v}分
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ステータス */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6}}>📌 ステータス</div>
+              <div style={{display:"flex",gap:8}}>
+                {[{v:'present',l:'出勤',c:T.blue,bg:T.bluePale},{v:'absent',l:'欠勤',c:T.coral,bg:T.coralSoft},{v:'paid_leave',l:'有給',c:T.amber,bg:"#FFF8E1"}].map(({v,l,c,bg})=>(
+                  <button key={v} onClick={()=>setEditRecord(p=>({...p,status:v}))}
+                    style={{flex:1,padding:"8px 4px",borderRadius:8,border:`2px solid ${editRecord.status===v?c:T.border}`,background:editRecord.status===v?bg:"#fff",color:editRecord.status===v?c:T.textMid,fontSize:13,fontWeight:editRecord.status===v?700:400,cursor:"pointer",fontFamily:FONT,transition:"all 0.15s"}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 備考 */}
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6}}>📝 備考</div>
+              <input type="text" value={editRecord.note||''} onChange={e=>setEditRecord(p=>({...p,note:e.target.value}))}
+                placeholder="修正理由・メモなど"
+                style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,fontFamily:FONT,boxSizing:"border-box"}} />
+            </div>
+
+            {/* ボタン */}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setEditRecord(null)}
+                style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",color:T.textMid,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
+                キャンセル
+              </button>
+              <button onClick={handleSaveEdit} disabled={editSaving}
+                style={{flex:2,padding:"10px",borderRadius:8,border:"none",background:editSaving?"#ccc":T.navy,color:"#fff",fontSize:13,fontWeight:700,cursor:editSaving?"not-allowed":"pointer",fontFamily:FONT}}>
+                {editSaving ? "保存中..." : "✅ 保存する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ヘッダー */}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:10 }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>⏱️ 勤怠管理</h2>
@@ -2355,10 +2483,18 @@ function AttendancePage({ user }) {
                        {otMin > 0 && <span style={{ color:T.coral, fontWeight:600 }}>🔥 残業 {Math.floor(otMin/60)}h{Math.round(otMin%60)}m</span>}
                      </div>
                    </div>
-                   <div style={{ fontSize:11, padding:"3px 8px", borderRadius:8, fontWeight:600, flexShrink:0,
-                     background:r.status==='present'?T.bluePale:r.status==='absent'?"#FDECEB":"#FFF8E1",
-                     color:r.status==='present'?T.blue:r.status==='absent'?T.coral:T.amber }}>
-                     {r.status==='present'?'出勤':r.status==='absent'?'欠勤':'有給'}
+                   <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                     <div style={{ fontSize:11, padding:"3px 8px", borderRadius:8, fontWeight:600,
+                       background:r.status==='present'?T.bluePale:r.status==='absent'?"#FDECEB":"#FFF8E1",
+                       color:r.status==='present'?T.blue:r.status==='absent'?T.coral:T.amber }}>
+                       {r.status==='present'?'出勤':r.status==='absent'?'欠勤':'有給'}
+                     </div>
+                     {isManager && (
+                       <button onClick={()=>setEditRecord({...r})}
+                         style={{fontSize:11,padding:"3px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:FONT,fontWeight:600}}>
+                         ✏️
+                       </button>
+                     )}
                    </div>
                  </div>
                );
