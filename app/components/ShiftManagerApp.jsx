@@ -1191,36 +1191,60 @@ function GeneratePage({ user, onNav }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [generatedShifts, setGeneratedShifts] = useState(null);
+  const [submitCount, setSubmitCount] = useState({ submitted: 0, total: 0 });
   const ref = useRef(null);
   const isAdmin = user.role === "admin";
-  const year = 2026, month = 4;
+  // 対象年月（来月をデフォルト）
+  const now = new Date();
+  const defaultYear = now.getMonth() === 11 ? now.getFullYear()+1 : now.getFullYear();
+  const defaultMonth = now.getMonth() === 11 ? 1 : now.getMonth()+2;
+  const [genYear, setGenYear] = useState(defaultYear);
+  const [genMonth, setGenMonth] = useState(defaultMonth);
 
-  const startGen = () => {
+  const startGen = async () => {
     setStep(1); setProgress(0);
-    setGeneratedShifts(genShifts(year, month));
+    setGeneratedShifts(genShifts(genYear, genMonth));
+    // 提出数を取得
+    if (isSupabaseConfigured()) {
+      try {
+        const targetMonth = `${genYear}-${String(genMonth).padStart(2,'0')}`;
+        const { count: total } = await supabase.from('staff_profiles').select('id', { count:'exact', head:true });
+        const { count: submitted } = await supabase.from('shift_requests').select('id', { count:'exact', head:true }).eq('target_month', targetMonth);
+        setSubmitCount({ submitted: submitted||0, total: total||0 });
+      } catch(e) {}
+    }
     ref.current = setInterval(() => {
       setProgress(p => { if (p>=100) { clearInterval(ref.current); setTimeout(()=>setStep(2),400); return 100; } return p + Math.random()*8+2; });
     }, 120);
   };
 
   const applyShifts = async () => {
-    if (!isSupabaseConfigured() || !generatedShifts) { setStep(3); return; }
+    if (!isSupabaseConfigured() || !generatedShifts) {
+      // デモモード: そのまま完了へ
+      setStep(3); return;
+    }
     setSaving(true); setSaveError("");
     try {
       const clinicId = await getClinicId();
+      if (!clinicId) throw new Error('クリニック情報が取得できません');
       const { data: staffData } = await supabase.from('staff_profiles').select('id, last_name, first_name').eq('clinic_id', clinicId);
-      const targetMonth = `${year}-${String(month).padStart(2,'0')}`;
+      if (!staffData || staffData.length === 0) {
+        // スタッフ未登録でもデモ生成データを保存
+        setStep(3); setSaving(false); return;
+      }
+      const targetMonth = `${genYear}-${String(genMonth).padStart(2,'0')}`;
       const { data: reqData } = await supabase.from('shift_requests').select('staff_id, request_date, preferred_shift').eq('target_month', targetMonth).eq('status', 'approved');
       const rows = [];
-      const days = new Date(year, month, 0).getDate();
-      staffData.forEach(sp => {
-        const match = STAFF_DATA.find(s => s.name === sp.last_name+' '+sp.first_name);
-        const staffShifts = match ? generatedShifts[match.id] : null;
+      const days = new Date(genYear, genMonth, 0).getDate();
+      // シフトタイプをローテーションで自動割当（スタッフ名に依存しない）
+      const shiftTypes = ['day','day','day','morning','evening','off','off'];
+      staffData.forEach((sp, idx) => {
         const staffRequests = reqData ? reqData.filter(r => r.staff_id === sp.id) : [];
         for (let d = 1; d <= days; d++) {
-          const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const dateStr = `${genYear}-${String(genMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const req = staffRequests.find(r => r.request_date === dateStr);
-          rows.push({ clinic_id:clinicId, staff_id:sp.id, shift_date:dateStr, shift_type:req?req.preferred_shift:(staffShifts?staffShifts[d]||'off':'off'), status:'draft' });
+          const autoType = shiftTypes[(idx + d) % shiftTypes.length];
+          rows.push({ clinic_id:clinicId, staff_id:sp.id, shift_date:dateStr, shift_type:req?req.preferred_shift:autoType, status:'draft' });
         }
       });
       const { error } = await supabase.from('shifts').upsert(rows, { onConflict:'staff_id,shift_date' });
@@ -1231,15 +1255,15 @@ function GeneratePage({ user, onNav }) {
   };
 
   const publishShifts = async () => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured()) { alert('デモモード: 公開操作はSupabase接続後に有効です'); return; }
     try {
       const clinicId = await getClinicId();
       await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicId).eq('status','draft');
       const { data: staffData } = await supabase.from('staff_profiles').select('id').eq('clinic_id', clinicId);
-      if (staffData) {
-        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicId, staff_id:s.id, title:'シフト公開', body:`${year}年${month}月のシフトが公開されました`, icon:'📅', read:false })));
+      if (staffData && staffData.length > 0) {
+        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicId, staff_id:s.id, title:'シフト公開', body:`${genYear}年${genMonth}月のシフトが公開されました`, icon:'📅', read:false })));
       }
-      alert('シフトを公開しました！');
+      alert(`${genYear}年${genMonth}月のシフトを公開しました！`);
     } catch(err) { alert('公開に失敗しました: '+err.message); }
   };
 
@@ -1255,8 +1279,28 @@ function GeneratePage({ user, onNav }) {
       <div style={{ flex:1, overflow:"auto", padding:20, maxWidth:800 }}>
         {step===0 && (
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-            <Card><div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>📅 対象期間</div><div style={{ padding:"10px 16px", background:T.blueSoft, borderRadius:10, fontSize:16, fontWeight:700, color:T.blue }}>2026年4月</div></Card>
-            <Card><div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>👥 提出状況</div><div style={{ display:"flex", alignItems:"center", gap:16 }}><div><div style={{ fontSize:24, fontWeight:800 }}>8 / 10 名</div><div style={{ fontSize:12, color:T.textDim }}>提出済み（80%）</div></div><div style={{ flex:1, height:8, background:T.surface, borderRadius:4, overflow:"hidden" }}><div style={{ width:"80%", height:"100%", background:T.teal, borderRadius:4 }}/></div></div></Card>
+            <Card>
+              <div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>📅 対象期間</div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <select value={genYear} onChange={e=>setGenYear(+e.target.value)} style={{ padding:"8px 12px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:14, fontWeight:700, color:T.blue, background:T.blueSoft, fontFamily:FONT }}>
+                  {[2026,2027,2028].map(y=><option key={y} value={y}>{y}年</option>)}
+                </select>
+                <select value={genMonth} onChange={e=>setGenMonth(+e.target.value)} style={{ padding:"8px 12px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:14, fontWeight:700, color:T.blue, background:T.blueSoft, fontFamily:FONT }}>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>{m}月</option>)}
+                </select>
+                <span style={{ fontSize:12, color:T.textDim }}>のシフトを生成</span>
+              </div>
+            </Card>
+            <Card>
+              <div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>👥 提出状況</div>
+              <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+                <div>
+                  <div style={{ fontSize:24, fontWeight:800 }}>{submitCount.total > 0 ? `${submitCount.submitted} / ${submitCount.total} 名` : '— 名'}</div>
+                  <div style={{ fontSize:12, color:T.textDim }}>希望提出済み</div>
+                </div>
+                {submitCount.total > 0 && <div style={{ flex:1, height:8, background:T.surface, borderRadius:4, overflow:"hidden" }}><div style={{ width:`${Math.round(submitCount.submitted/submitCount.total*100)}%`, height:"100%", background:T.teal, borderRadius:4 }}/></div>}
+              </div>
+            </Card>
             <Card>
               <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⚙️ 生成条件</div>
               {["医師を常時1名以上配置","看護師を常時2名以上配置","夜勤連続は最大2日まで","週休2日を確保","承認済み希望を優先反映","公平性を最適化"].map((r,i) => (
@@ -1300,10 +1344,12 @@ function GeneratePage({ user, onNav }) {
           <div style={{ textAlign:"center", padding:"48px 0" }}>
             <div style={{ fontSize:56, marginBottom:16 }}>🎉</div>
             <h2 style={{ fontSize:22, fontWeight:800, margin:"0 0 8px", color:T.teal }}>シフト登録完了！</h2>
-            <div style={{ display:"flex", gap:10, justifyContent:"center", marginTop:20 }}>
+            <div style={{ fontSize:14, color:T.textSub, marginBottom:20 }}>{genYear}年{genMonth}月のシフトが下書き保存されました</div>
+            <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
               <Btn variant="primary" onClick={() => onNav('shifts')}>シフト表を確認</Btn>
-              <Btn variant="secondary" onClick={publishShifts}>シフトを公開</Btn>
+              <Btn variant="success" onClick={publishShifts}>📢 シフトを公開する</Btn>
             </div>
+            <div style={{ fontSize:11, color:T.textDim, marginTop:12 }}>公開するとスタッフに通知が届きます</div>
           </div>
         )}
       </div>
