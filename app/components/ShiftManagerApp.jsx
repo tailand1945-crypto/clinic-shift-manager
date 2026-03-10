@@ -1480,7 +1480,11 @@ function SwapPage({ user }) {
     } catch(err) { console.error('交換DB更新エラー:', err); }
   };
 
-  const incoming = swaps.filter(s=>s.target_id===user.id);
+  const isSwapManager = user.role === 'admin' || user.role === 'manager';
+  // 管理者は承認待ち全件表示、一般は自分宛のみ
+  const incoming = isSwapManager
+    ? swaps.filter(s => s.status === 'pending' || s.target_id === user.id)
+    : swaps.filter(s => s.target_id === user.id);
   const outgoing = swaps.filter(s=>s.requester_id===user.id);
   const displayed = tab===0?incoming:outgoing;
   const statusLabel = s => s==='pending'?'承認待ち':s==='approved'?'承認済み':'却下';
@@ -1509,9 +1513,14 @@ function SwapPage({ user }) {
           </div>
         </Card>
       )}
-      <div style={{ display:"flex", gap:0, marginBottom:16, borderBottom:`1px solid ${T.border}` }}>
+      <div style={{ display:"flex", gap:0, marginBottom:8, borderBottom:`1px solid ${T.border}` }}>
         {["受信","送信済み"].map((l,i) => <button key={i} onClick={()=>setTab(i)} style={{ padding:"10px 20px", border:"none", background:"none", cursor:"pointer", borderBottom:tab===i?`3px solid ${T.blue}`:"3px solid transparent", color:tab===i?T.text:T.textDim, fontSize:13, fontWeight:tab===i?700:500, fontFamily:FONT }}>{l}</button>)}
       </div>
+      {tab===0 && isSwapManager && incoming.length > 0 && (
+        <div style={{ fontSize:11, color:T.blue, background:T.bluePale, padding:'6px 12px', borderRadius:8, marginBottom:12 }}>
+          🛡️ 管理者として全スタッフの承認待ちリクエストを表示しています
+        </div>
+      )}
       {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
        displayed.length===0 ? <Empty icon="🔄" title="リクエストなし" sub="交換リクエストはありません" /> :
        displayed.map(sw => (
