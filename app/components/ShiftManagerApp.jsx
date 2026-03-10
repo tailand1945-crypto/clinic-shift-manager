@@ -296,7 +296,7 @@ function LoginScreen({ onLogin }) {
 // ─────────────────────────────────────────────
 // SIDEBAR
 // ─────────────────────────────────────────────
-function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCount }) {
+function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCount, notifCount=0 }) {
   const isManager = user.role === "admin" || user.role === "manager";
   const items = [
     { id:"home",       icon:"🏠", label:"ホーム" },
@@ -307,7 +307,7 @@ function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCo
     { id:"generate",   icon:"⚡", label:"自動生成", admin:true },
     { id:"staff",      icon:"👥", label:"スタッフ" },
     { id:"swap",       icon:"🔄", label:"シフト交換" },
-    { id:"notif",      icon:"🔔", label:"通知", badge:2 },
+    { id:"notif",      icon:"🔔", label:"通知", badge:notifCount },
     { id:"settings",   icon:"⚙️", label:"設定" },
   ];
   const w = collapsed ? 68 : 240;
@@ -1460,7 +1460,7 @@ function SwapPage({ user }) {
 // ─────────────────────────────────────────────
 // NOTIF / SETTINGS
 // ─────────────────────────────────────────────
-function NotifPage({ user }) {
+function NotifPage({ user, onUnreadCountChange }) {
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1478,6 +1478,7 @@ function NotifPage({ user }) {
     try { await supabase.from('notifications').update({read:true}).eq('staff_id',user.id).eq('read',false); setNotifs(p=>p.map(n=>({...n,read:true}))); } catch(err) {}
   };
   const unreadCount = notifs.filter(n=>!n.read).length;
+  useEffect(() => { if (onUnreadCountChange) onUnreadCountChange(unreadCount); }, [unreadCount]);
 
   return (
     <div style={{ padding:20, maxWidth:700 }}>
@@ -2319,6 +2320,7 @@ export default function ShiftManagerWebApp() {
   const [isMobile, setIsMobile] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   useEffect(() => {
     if (isSupabaseConfigured() && supabase) {
@@ -2355,6 +2357,16 @@ export default function ShiftManagerWebApp() {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+
+  // Load initial unread notification count
+  useEffect(() => {
+    if (!user) return;
+    if (!supabase) { setUnreadNotifCount(0); return; }
+    supabase.from('notifications').select('id', { count:'exact' })
+      .eq('staff_id', user.id).eq('read', false)
+      .then(({ count }) => { if (count != null) setUnreadNotifCount(count); })
+      .catch(() => setUnreadNotifCount(0));
+  }, [user]);
 
   // Load initial pending count for managers
   useEffect(() => {
@@ -2394,7 +2406,7 @@ export default function ShiftManagerWebApp() {
       case "generate":   return <GeneratePage user={user} onNav={setPage} />;
       case "staff":      return <StaffPage user={user} />;
       case "swap":       return <SwapPage user={user} />;
-      case "notif":      return <NotifPage user={user} />;
+      case "notif":      return <NotifPage user={user} onUnreadCountChange={setUnreadNotifCount} />;
       case "settings":   return <SettingsPage user={user} onSwitch={handleSwitch} onLogout={handleLogout} />;
       case "more":       return <MoreMenuPage user={user} onNav={setPage} onLogout={handleLogout} />;
       default:         return <HomePage user={user} onNav={setPage} />;
@@ -2406,7 +2418,7 @@ export default function ShiftManagerWebApp() {
       {!isMobile && (
         <Sidebar user={user} active={page} onNav={setPage} onLogout={handleLogout}
           collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(p=>!p)}
-          pendingCount={pendingApprovalCount} />
+          pendingCount={pendingApprovalCount} notifCount={unreadNotifCount} />
       )}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
         {isMobile && (
