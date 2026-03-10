@@ -426,7 +426,7 @@ function HomePage({ user, onNav }) {
   useEffect(() => {
     const _today = new Date();
     const load = async () => {
-      if (!supabase) {
+      if (!isSupabaseConfigured()) {
         // デモモード: サンプルデータをセット
         const demoNotifs = [
           { id:'d1', title:'シフト公開', body:`${_today.getFullYear()}年${_today.getMonth()+1}月のシフトが公開されました。`, icon:'📅', read:false, created_at: new Date(_today.getTime()-1000*60*30).toISOString() },
@@ -469,7 +469,7 @@ function HomePage({ user, onNav }) {
 
   // デモモード補完: 今後シフトがない場合サンプルを表示
   const today2 = new Date();
-  const demoUpcoming = upcomingShifts.length === 0 && !supabase ? (() => {
+  const demoUpcoming = upcomingShifts.length === 0 && !isSupabaseConfigured() ? (() => {
     const res = [];
     for (let i=1; i<=5; i++) {
       const d2 = new Date(today2); d2.setDate(today2.getDate()+i);
@@ -564,7 +564,7 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
   const filtered = filterPos ? staffList.filter(s => s.pos===filterPos) : staffList;
 
   useEffect(() => {
-    if (!supabase) { setShifts(genShifts(year, month)); return; }
+    if (!isSupabaseConfigured()) { setShifts(genShifts(year, month)); return; }
     const load = async () => {
       try {
         const { data: spData } = await supabase.from('staff_profiles').select('*');
@@ -662,7 +662,7 @@ function RequestPage({ user }) {
   useEffect(() => {
     if (tab !== 1) return;
     setReqLoading(true);
-    if (!supabase || user.id === 'new') {
+    if (!isSupabaseConfigured() || user.id === 'new') {
       // Demo data: managers see all, staff see own
       const demoReqs = isManager
         ? DEMO_REQUESTS.map(r => ({ ...r, staffName: r.staffName || STAFF_DATA.find(s=>s.id===r.staff_id)?.name || '不明', pos: r.pos || STAFF_DATA.find(s=>s.id===r.staff_id)?.pos || 'nurse' }))
@@ -696,7 +696,7 @@ function RequestPage({ user }) {
   const handleSubmit = async () => {
     setLoading(true); setError("");
     try {
-      if (supabase && user.id !== 'new') {
+      if (isSupabaseConfigured() && user.id !== 'new') {
         const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
         const rows = Object.entries(sel).map(([d, shift]) => ({
           clinic_id: clinicData.id, staff_id: user.id,
@@ -863,7 +863,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
 
   const loadRequests = async () => {
     setLoading(true);
-    if (!supabase) {
+    if (!isSupabaseConfigured()) {
       // Demo data enriched with staff name/pos
       const enriched = DEMO_REQUESTS.map(r => ({
         ...r,
@@ -898,7 +898,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
     setProcessing(id);
     try {
       const req = requests.find(r => r.id === id);
-      if (supabase && req) {
+      if (isSupabaseConfigured() && req) {
         await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
         // Notify staff
         const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
@@ -1140,7 +1140,7 @@ function GeneratePage({ user, onNav }) {
   };
 
   const applyShifts = async () => {
-    if (!supabase || !generatedShifts) { setStep(3); return; }
+    if (!isSupabaseConfigured() || !generatedShifts) { setStep(3); return; }
     setSaving(true); setSaveError("");
     try {
       const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
@@ -1167,7 +1167,7 @@ function GeneratePage({ user, onNav }) {
   };
 
   const publishShifts = async () => {
-    if (!supabase) return;
+    if (!isSupabaseConfigured()) return;
     try {
       const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).single();
       await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicData.id).eq('status','draft');
@@ -1300,7 +1300,7 @@ function StaffPage({ user }) {
   };
 
   useEffect(() => {
-    if (!supabase) { setStaffList(STAFF_DATA); setLoading(false); return; }
+    if (!isSupabaseConfigured()) { setStaffList(STAFF_DATA); setLoading(false); return; }
     const load = async () => {
       try {
         const { data } = await supabase.from('staff_profiles').select('*').order('position');
@@ -1401,7 +1401,7 @@ function SwapPage({ user }) {
   const [error, setError] = useState('');
 
   const loadData = async () => {
-    if (!supabase) { setLoading(false); return; }
+    if (!isSupabaseConfigured()) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: spData } = await supabase.from('staff_profiles').select('id, last_name, first_name');
@@ -1523,7 +1523,7 @@ function NotifPage({ user, onUnreadCountChange }) {
 
   const loadNotifs = async () => {
     setLoading(true);
-    if (!supabase) {
+    if (!isSupabaseConfigured()) {
       // デモモード: サンプル通知を表示
       setNotifs(DEMO_NOTIFS);
       setLoading(false);
@@ -1540,27 +1540,27 @@ function NotifPage({ user, onUnreadCountChange }) {
 
   const markRead = async (id) => {
     setNotifs(p => p.map(n => n.id===id ? {...n, read:true} : n));
-    if (supabase) {
+    if (isSupabaseConfigured()) {
       try { await supabase.from('notifications').update({read:true}).eq('id',id); } catch(e) {}
     }
   };
   const markAllRead = async () => {
     setNotifs(p => p.map(n => ({...n, read:true})));
-    if (supabase) {
+    if (isSupabaseConfigured()) {
       try { await supabase.from('notifications').update({read:true}).eq('staff_id',user.id).eq('read',false); } catch(e) {}
     }
   };
   const deleteNotif = async (id, e) => {
     e.stopPropagation();
     setNotifs(p => p.filter(n => n.id !== id));
-    if (supabase) {
+    if (isSupabaseConfigured()) {
       try { await supabase.from('notifications').delete().eq('id', id); } catch(e) {}
     }
   };
   const deleteAll = async () => {
     if (!window.confirm('すべての通知を削除しますか？')) return;
     setNotifs([]);
-    if (supabase) {
+    if (isSupabaseConfigured()) {
       try { await supabase.from('notifications').delete().eq('staff_id', user.id); } catch(e) {}
     }
   };
@@ -1571,7 +1571,7 @@ function NotifPage({ user, onUnreadCountChange }) {
     setSending(true);
     try {
       const newNotif = { title:sendForm.title, body:sendForm.body, icon:sendForm.icon, read:false, created_at:new Date().toISOString() };
-      if (!supabase) {
+      if (!isSupabaseConfigured()) {
         // デモモード: 自分の画面に追加
         setNotifs(p => [{ ...newNotif, id:'demo_'+Date.now(), staff_id:user.id }, ...p]);
         setShowSend(false);
@@ -1629,7 +1629,7 @@ function NotifPage({ user, onUnreadCountChange }) {
       </div>
 
       {/* デモモード案内 */}
-      {!supabase && (
+      {!isSupabaseConfigured() && (
         <div style={{ padding:'10px 14px', background:'#FFF8E1', borderRadius:10, border:'1px solid #FDE68A', marginBottom:14, fontSize:12, color:'#92400E' }}>
           <b>⚠️ デモモード</b>：サンプル通知を表示しています。Supabase接続後は実際の通知が届きます。
           {isManager && ' 管理者は「📤 通知を送る」でデモ送信をお試しいただけます。'}
@@ -1739,7 +1739,7 @@ function NotifPage({ user, onUnreadCountChange }) {
       ))}
 
       {/* Supabase未設定の場合の導入ガイド */}
-      {!supabase && isManager && (
+      {!isSupabaseConfigured() && isManager && (
         <div style={{ marginTop:20, padding:14, background:T.surface, borderRadius:10, border:`1px solid ${T.border}` }}>
           <div style={{ fontSize:12, fontWeight:700, color:T.textMid, marginBottom:8 }}>🚀 本格導入について</div>
           <div style={{ fontSize:11, color:T.textSub, lineHeight:1.8 }}>
@@ -2022,7 +2022,7 @@ function AttendancePage({ user }) {
     const load = async () => {
       setLoading(true);
       try {
-        if (!supabase) {
+        if (!isSupabaseConfigured()) {
           const staffId = isManager ? selectedStaff : user.id;
           setRecords(genDemoRecords(staffId, year, month));
           if (isManager) setStaffList(genDemoStaff());
@@ -2061,7 +2061,7 @@ function AttendancePage({ user }) {
         const summaries = [];
         for (const sp of staffData) {
           let recs;
-          if (!supabase) {
+          if (!isSupabaseConfigured()) {
             const sd = STAFF_DATA.find(s => s.id === sp.id);
             recs = genDemoRecords(sp.id, year, month);
           } else {
@@ -2139,7 +2139,7 @@ function AttendancePage({ user }) {
         note: editRecord.note || '',
       };
       delete updated._inTime; delete updated._outTime;
-      if (supabase) {
+      if (isSupabaseConfigured()) {
         await supabase.from('attendance_records').update({
           clock_in: updated.clock_in, clock_out: updated.clock_out,
           break_minutes: updated.break_minutes, status: updated.status, note: updated.note,
@@ -2159,7 +2159,7 @@ function AttendancePage({ user }) {
     setSaving(true);
     try {
       const now = new Date().toISOString();
-      if (!supabase) {
+      if (!isSupabaseConfigured()) {
         const rec = { id:`local_${Date.now()}`, staff_id:user.id, date:todayStr, clock_in:now, clock_out:null, break_minutes:60, status:'present' };
         setTodayRecord(rec); setClockedIn(true);
         setRecords(prev => [...prev.filter(r=>r.date!==todayStr), rec]);
@@ -2179,7 +2179,7 @@ function AttendancePage({ user }) {
     setSaving(true);
     try {
       const now = new Date().toISOString();
-      if (!supabase) {
+      if (!isSupabaseConfigured()) {
         const updated = { ...todayRecord, clock_out:now };
         setTodayRecord(updated); setClockedIn(false);
         setRecords(prev => prev.map(r=>r.date===todayStr?updated:r));
@@ -3119,7 +3119,7 @@ export default function ShiftManagerWebApp() {
   }, []);
 
   const loadStaffProfile = async (uid) => {
-    if (!supabase) return;
+    if (!isSupabaseConfigured()) return;
     try {
       const { data, error } = await supabase.from('staff_profiles').select('*').eq('auth_user_id', uid).single();
       if (data && !error) {
@@ -3143,7 +3143,7 @@ export default function ShiftManagerWebApp() {
   // Load initial unread notification count
   useEffect(() => {
     if (!user) return;
-    if (!supabase) { setUnreadNotifCount(0); return; }
+    if (!isSupabaseConfigured()) { setUnreadNotifCount(0); return; }
     supabase.from('notifications').select('id', { count:'exact' })
       .eq('staff_id', user.id).eq('read', false)
       .then(({ count }) => { if (count != null) setUnreadNotifCount(count); })
@@ -3155,7 +3155,7 @@ export default function ShiftManagerWebApp() {
     if (!user) return;
     const isManager = user.role === "admin" || user.role === "manager";
     if (!isManager) return;
-    if (!supabase) {
+    if (!isSupabaseConfigured()) {
       setPendingApprovalCount(DEMO_REQUESTS.filter(r => r.status === 'pending').length);
       return;
     }
