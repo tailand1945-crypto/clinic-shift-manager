@@ -74,6 +74,10 @@ const DEMO_REQUESTS = [
   { id:"r8", staff_id:"s3", staffName:"鈴木 花子", pos:"nurse", request_date:"2026-05-25", preferred_shift:"day", priority:1, status:"pending", reason:"", target_month:"2026-05", created_at:"2026-04-12T14:00:00Z" },
 ];
 
+// セッション中の承認状態キャッシュ（ページ遷移後も保持）
+const _requestStatusCache = new Map();
+
+
 function genShifts(y, m) {
   const days = new Date(y, m, 0).getDate();
   const out = {};
@@ -883,6 +887,9 @@ function ApprovalPage({ user, onPendingCountChange }) {
         ...r,
         staffName: r.staffName || STAFF_DATA.find(s=>s.id===r.staff_id)?.name || '不明',
         pos: r.pos || STAFF_DATA.find(s=>s.id===r.staff_id)?.pos || 'nurse',
+        // キャッシュから最新ステータスを復元
+        status: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).status : r.status,
+        reject_reason: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).reason : r.reject_reason,
       }));
       setRequests(enriched);
       const pending = enriched.filter(r=>r.status==='pending').length;
@@ -897,6 +904,9 @@ function ApprovalPage({ user, onPendingCountChange }) {
           ...r,
           staffName: r.staff_profiles ? r.staff_profiles.last_name + ' ' + r.staff_profiles.first_name : '不明',
           pos: { doctor:'doctor', doctor_ped:'doctor_ped', doctor_int:'doctor_int', doctor_derm:'doctor_derm', doctor_ortho:'doctor_ortho', nurse:'nurse', pt:'pt', ot:'ot', trainer:'trainer', lab:'lab', receptionist:'clerk', clerk:'clerk', technician:'assistant', assistant:'assistant' }[r.staff_profiles?.position] || 'nurse',
+          // キャッシュから最新ステータスを復元（DB書込み前の遷移対策）
+          status: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).status : r.status,
+          reject_reason: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).reason : r.reject_reason,
         }));
         setRequests(enriched);
         const pending = enriched.filter(r=>r.status==='pending').length;
@@ -910,6 +920,8 @@ function ApprovalPage({ user, onPendingCountChange }) {
 
   const handleAction = async (id, action, reason = "") => {
     setProcessing(id);
+    // キャッシュに即時保存（ページ遷移後も復元できるように）
+    _requestStatusCache.set(id, { status: action, reason: reason || null });
     // ローカルstate即時更新（関数型で最新stateを参照）
     let reqSnapshot = null;
     setRequests(prev => {
@@ -919,29 +931,27 @@ function ApprovalPage({ user, onPendingCountChange }) {
       onPendingCountChange?.(newPending);
       return updated;
     });
-    // Supabaseへの書き込みは独立して試みる（失敗してもUIは維持）
+    // Supabaseへの書き込み（awaitで確実に完了させる）
     if (isSupabaseConfigured()) {
-      // reqSnapshotはsetRequests内で同期的にセットされるが念のためフォールバック
-      setTimeout(async () => {
-        try {
-          await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
-          if (reqSnapshot) {
-            try {
-              const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
-              if (clinicData) {
-                const notifBody = action === 'approved'
-                  ? `${reqSnapshot.request_date}の希望シフト（${SHIFTS[reqSnapshot.preferred_shift]?.f}）が承認されました`
-                  : `${reqSnapshot.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
-                await supabase.from('notifications').insert([{
-                  clinic_id: clinicData.id, staff_id: reqSnapshot.staff_id,
-                  title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
-                  body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
-                }]);
-              }
-            } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
-          }
-        } catch(err) { console.error('DB更新エラー:', err); }
-      }, 0);
+      try {
+        const { error: updateErr } = await supabase.from('shift_requests').update({ status: action, reject_reason: reason || null }).eq('id', id);
+        if (updateErr) console.error('shift_requests update error:', updateErr);
+        if (reqSnapshot) {
+          try {
+            const { data: clinicData } = await supabase.from('clinics').select('id').limit(1).maybeSingle();
+            if (clinicData) {
+              const notifBody = action === 'approved'
+                ? `${reqSnapshot.request_date}の希望シフト（${SHIFTS[reqSnapshot.preferred_shift]?.f}）が承認されました`
+                : `${reqSnapshot.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
+              await supabase.from('notifications').insert([{
+                clinic_id: clinicData.id, staff_id: reqSnapshot.staff_id,
+                title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
+                body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
+              }]);
+            }
+          } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
+        }
+      } catch(err) { console.error('DB更新エラー:', err); }
     }
     setProcessing(null); setRejectModal(null); setRejectReason("");
     // 承認・却下後は「全て」表示に切り替え（結果が見えるように）
