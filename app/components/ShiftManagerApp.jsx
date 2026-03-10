@@ -1570,9 +1570,9 @@ function PayslipModal({ data, onClose }) {
   <div class="section-title">【控　除】</div>
   <table>
     <tr class="deduct-row"><td>厚生年金保険料（9.15%）</td><td>¥${data.pension.toLocaleString()}</td></tr>
-    <tr class="deduct-row"><td>健康保険料（5.005% 協会けんぽ兵庫）</td><td>¥${data.health.toLocaleString()}</td></tr>
-    <tr class="deduct-row"><td>介護保険料（0.91%）${data.age<40||data.age>64?"※対象外":""}</td><td>¥${data.care.toLocaleString()}</td></tr>
-    <tr class="deduct-row"><td>雇用保険料（0.6% 医療福祉業）</td><td>¥${data.employment.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>健康保険料（5.155% 協会けんぽ福岡）</td><td>¥${data.health.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>介護保険料（0.795%）${data.age<40||data.age>64?"※対象外":""}</td><td>¥${data.care.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>雇用保険料（0.55% 一般の事業）</td><td>¥${data.employment.toLocaleString()}</td></tr>
     <tr class="deduct-row"><td>所得税（源泉徴収 月額甲欄）</td><td>¥${data.incomeTax.toLocaleString()}</td></tr>
     <tr style="font-weight:700;"><td>控除合計</td><td>¥${data.deductTotal.toLocaleString()}</td></tr>
   </table>
@@ -1581,7 +1581,7 @@ function PayslipModal({ data, onClose }) {
   <tr class="net-row"><td>差引支給額（手取り概算）</td><td>¥${data.netPay.toLocaleString()}</td></tr>
 </table>
 <div class="footer">
-  ※本明細は概算です。2024年度 協会けんぽ兵庫・月額甲欄基準。実際の給与は雇用契約・標準報酬月額に基づきます。<br/>
+  ※本明細は概算です。令和7年度（2025年4月〜2026年3月）協会けんぽ福岡・月額甲欄基準。実際の給与は雇用契約・標準報酬月額に基づきます。<br/>
   Clinic Shift Manager / ST INTELLIGENCE
 </div>
 </body></html>`;
@@ -1599,9 +1599,9 @@ function PayslipModal({ data, onClose }) {
   ];
   const rows_kojo = [
     ['厚生年金保険料', data.pension, '9.15%'],
-    ['健康保険料', data.health, '5.005%（協会けんぽ兵庫）'],
-    ['介護保険料', data.care, data.age>=40&&data.age<=64?'0.91%':'対象外（40歳未満or65歳以上）'],
-    ['雇用保険料', data.employment, '0.6%（医療福祉業）'],
+    ['健康保険料', data.health, '5.155%（協会けんぽ福岡）'],
+    ['介護保険料', data.care, data.age>=40&&data.age<=64?'0.795%':'対象外（40歳未満or65歳以上）'],
+    ['雇用保険料', data.employment, '0.55%（一般の事業）'],
     ['所得税', data.incomeTax, '源泉徴収 月額甲欄'],
     ['控除合計', data.deductTotal, '', true],
   ];
@@ -1672,7 +1672,7 @@ function PayslipModal({ data, onClose }) {
           <div style={{fontSize:24,fontWeight:800,color:"#fff",fontFamily:MONO}}>¥{data.netPay.toLocaleString()}</div>
         </div>
         <div style={{fontSize:9,color:T.textDim,marginTop:8,lineHeight:1.6}}>
-          ※ 2024年度 協会けんぽ兵庫・月額甲欄基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。
+          ※ 令和7年度（2025年4月〜2026年3月）協会けんぽ福岡・月額甲欄基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。
         </div>
       </div>
     </div>
@@ -1681,16 +1681,17 @@ function PayslipModal({ data, onClose }) {
 
 // ─────────────────────────────────────────────
 // 社会保険料・所得税 計算ユーティリティ
+// 令和7年度（2025年4月〜2026年3月）福岡県基準
 // ─────────────────────────────────────────────
 function calcDeductions(grossPay, age) {
-  // ① 厚生年金保険料 (労使折半) 2024年度 18.3% → 本人 9.15%
+  // ① 厚生年金保険料 (労使折半) 令和7年度 18.3% → 本人 9.15%
   const pensionRate   = 0.0915;
-  // ② 健康保険料 協会けんぽ 兵庫 2024年度 10.01% → 本人 5.005%
-  const healthRate    = 0.05005;
-  // ③ 介護保険料 1.82% → 本人 0.91% ※40～64歳のみ
-  const careRate      = (age >= 40 && age <= 64) ? 0.0091 : 0;
-  // ④ 雇用保険料 医療福祉業 労働者負担 0.6%
-  const employRate    = 0.006;
+  // ② 健康保険料 協会けんぽ 福岡県 令和7年度 10.31% → 本人 5.155%
+  const healthRate    = 0.05155;
+  // ③ 介護保険料 全国一律 令和7年度 1.59% → 本人 0.795% ※40〜64歳のみ
+  const careRate      = (age >= 40 && age <= 64) ? 0.00795 : 0;
+  // ④ 雇用保険料 一般の事業（医療業含む）令和7年度 労働者負担 5.5/1000 = 0.55%
+  const employRate    = 0.0055;
 
   const pension    = Math.round(grossPay * pensionRate);
   const health     = Math.round(grossPay * healthRate);
@@ -2159,9 +2160,9 @@ function AttendancePage({ user }) {
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:6, marginBottom:10 }}>
                   {[
                     {label:"厚生年金", value:ded.pension, note:"9.15%"},
-                    {label:"健康保険", value:ded.health, note:"5.005%"},
-                    {label:"介護保険", value:ded.care, note:myAge>=40&&myAge<=64?"0.91%":"対象外"},
-                    {label:"雇用保険", value:ded.employment, note:"0.6%"},
+                    {label:"健康保険", value:ded.health, note:"5.155% 福岡"},
+                    {label:"介護保険", value:ded.care, note:myAge>=40&&myAge<=64?"0.795%":"対象外"},
+                    {label:"雇用保険", value:ded.employment, note:"0.55%"},
                     {label:"所得税", value:ded.incomeTax, note:"甲欄"},
                   ].map(({label,value,note},i)=>(
                     <div key={i} style={{padding:"7px 8px",background:T.bgAlt||"#FFF8F8",borderRadius:8,border:`1px solid ${T.coralSoft}`}}>
@@ -2180,7 +2181,7 @@ function AttendancePage({ user }) {
                   <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontWeight:600}}>💴 差引支給額（手取り概算）</div>
                   <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:MONO}}>¥{ded.netPay.toLocaleString()}</div>
                 </div>
-                <div style={{ fontSize:10, color:T.textDim, marginTop:8 }}>※ 2024年度 協会けんぽ兵庫・月額甲欄 基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。</div>
+                <div style={{ fontSize:10, color:T.textDim, marginTop:8 }}>※ 令和7年度（2025年4月〜2026年3月）協会けんぽ福岡・月額甲欄基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。</div>
               </Card>
             );
           })()}
