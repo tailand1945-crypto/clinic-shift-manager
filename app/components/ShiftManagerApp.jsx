@@ -1523,6 +1523,205 @@ function NotifPage({ user, onUnreadCountChange }) {
   );
 }
 
+
+
+// ─────────────────────────────────────────────
+// 給与明細モーダル
+// ─────────────────────────────────────────────
+function PayslipModal({ data, onClose }) {
+  if (!data) return null;
+  const printPayslip = () => {
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>給与明細 ${data.year}年${data.month}月</title>
+<style>
+  body { font-family: "Hiragino Sans","Yu Gothic","Meiryo",sans-serif; padding:20px; max-width:600px; margin:0 auto; font-size:13px; }
+  h1 { text-align:center; font-size:18px; border-bottom:3px solid #1B2A4A; padding-bottom:10px; margin-bottom:20px; }
+  .meta { display:flex; justify-content:space-between; margin-bottom:16px; font-size:12px; color:#555; }
+  .section { margin-bottom:16px; }
+  .section-title { font-size:11px; font-weight:700; color:#555; border-bottom:1px solid #ddd; padding-bottom:4px; margin-bottom:8px; letter-spacing:1px; }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:6px 8px; border-bottom:1px solid #eee; }
+  td:last-child { text-align:right; font-weight:600; }
+  .total-row td { background:#1B2A4A; color:white; font-weight:800; font-size:14px; }
+  .deduct-row td { color:#E8625C; }
+  .net-row td { background:#3B7DDD; color:white; font-weight:800; font-size:16px; }
+  .footer { font-size:10px; color:#999; text-align:center; margin-top:20px; border-top:1px solid #eee; padding-top:10px; }
+  @media print { body { padding:10px; } }
+</style></head><body>
+<h1>給 与 明 細 書</h1>
+<div class="meta">
+  <div>対象期間：${data.year}年${data.month}月分</div>
+  <div>氏名：${data.name}　様</div>
+</div>
+<div class="meta">
+  <div>出勤日数：${data.totalDays}日</div>
+  <div>勤務時間：${data.totalH}時間${data.totalM}分</div>
+  <div>残業時間：${data.otH}時間${data.otM}分</div>
+  <div>時給：¥${data.wage.toLocaleString()}</div>
+</div>
+<div class="section">
+  <div class="section-title">【支　給】</div>
+  <table>
+    <tr><td>基本給</td><td>¥${data.regularPay.toLocaleString()}</td></tr>
+    <tr><td>残業代（×${(data.regularPay>0&&data.totalH>0)?((data.overtimePay/(data.otH||1)/data.wage).toFixed(2)):1.25}倍）</td><td>¥${data.overtimePay.toLocaleString()}</td></tr>
+    <tr class="total-row"><td>総支給額</td><td>¥${data.grossPay.toLocaleString()}</td></tr>
+  </table>
+</div>
+<div class="section">
+  <div class="section-title">【控　除】</div>
+  <table>
+    <tr class="deduct-row"><td>厚生年金保険料（9.15%）</td><td>¥${data.pension.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>健康保険料（5.005% 協会けんぽ兵庫）</td><td>¥${data.health.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>介護保険料（0.91%）${data.age<40||data.age>64?"※対象外":""}</td><td>¥${data.care.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>雇用保険料（0.6% 医療福祉業）</td><td>¥${data.employment.toLocaleString()}</td></tr>
+    <tr class="deduct-row"><td>所得税（源泉徴収 月額甲欄）</td><td>¥${data.incomeTax.toLocaleString()}</td></tr>
+    <tr style="font-weight:700;"><td>控除合計</td><td>¥${data.deductTotal.toLocaleString()}</td></tr>
+  </table>
+</div>
+<table>
+  <tr class="net-row"><td>差引支給額（手取り概算）</td><td>¥${data.netPay.toLocaleString()}</td></tr>
+</table>
+<div class="footer">
+  ※本明細は概算です。2024年度 協会けんぽ兵庫・月額甲欄基準。実際の給与は雇用契約・標準報酬月額に基づきます。<br/>
+  Clinic Shift Manager / ST INTELLIGENCE
+</div>
+</body></html>`;
+    const w = window.open('','_blank','width=700,height=900');
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>w.print(),400);
+  };
+
+  const rows_kyuyo = [
+    ['基本給', data.regularPay],
+    ['残業代', data.overtimePay],
+    ['総支給額', data.grossPay, true],
+  ];
+  const rows_kojo = [
+    ['厚生年金保険料', data.pension, '9.15%'],
+    ['健康保険料', data.health, '5.005%（協会けんぽ兵庫）'],
+    ['介護保険料', data.care, data.age>=40&&data.age<=64?'0.91%':'対象外（40歳未満or65歳以上）'],
+    ['雇用保険料', data.employment, '0.6%（医療福祉業）'],
+    ['所得税', data.incomeTax, '源泉徴収 月額甲欄'],
+    ['控除合計', data.deductTotal, '', true],
+  ];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+      onClick={onClose}>
+      <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}
+        onClick={e=>e.stopPropagation()}>
+        {/* タイトル */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:800,color:T.navy}}>📄 給与明細書</div>
+            <div style={{fontSize:12,color:T.textSub}}>{data.year}年{data.month}月分　{data.name}　様</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={printPayslip}
+              style={{fontSize:12,fontWeight:700,color:"#fff",background:T.blue,border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontFamily:FONT}}>
+              🖨️ 印刷・PDF
+            </button>
+            <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:T.textDim}}>×</button>
+          </div>
+        </div>
+
+        {/* 勤怠サマリー */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+          {[
+            {label:"出勤日数",value:`${data.totalDays}日`},
+            {label:"勤務時間",value:`${data.totalH}h${data.totalM}m`},
+            {label:"残業時間",value:`${data.otH}h${data.otM}m`},
+            {label:"時給",value:`¥${data.wage.toLocaleString()}`},
+          ].map(({label,value},i)=>(
+            <div key={i} style={{textAlign:"center",padding:"8px 4px",background:T.surface,borderRadius:8}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.navy,fontFamily:MONO}}>{value}</div>
+              <div style={{fontSize:9,color:T.textSub}}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 支給 */}
+        <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6,letterSpacing:1}}>【支　給】</div>
+        <div style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",marginBottom:12}}>
+          {rows_kyuyo.map(([label,val,total],i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:total?"#1B2A4A":i%2?T.surface:"#fff",borderTop:i>0?`1px solid ${T.borderLight}`:"none"}}>
+              <span style={{fontSize:12,color:total?"#fff":T.textMid,fontWeight:total?700:500}}>{label}</span>
+              <span style={{fontSize:13,fontWeight:800,color:total?"#fff":T.text,fontFamily:MONO}}>¥{val.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 控除 */}
+        <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6,letterSpacing:1}}>【控　除】</div>
+        <div style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",marginBottom:12}}>
+          {rows_kojo.map(([label,val,note,total],i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:total?"#FEF3C7":i%2?T.surface:"#fff",borderTop:i>0?`1px solid ${T.borderLight}`:"none"}}>
+              <div>
+                <span style={{fontSize:12,color:total?"#92400E":T.coral,fontWeight:total?700:500}}>{label}</span>
+                {note&&<span style={{fontSize:9,color:T.textDim,marginLeft:6}}>({note})</span>}
+              </div>
+              <span style={{fontSize:13,fontWeight:total?800:700,color:total?"#92400E":T.coral,fontFamily:MONO}}>¥{val.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 差引支給額 */}
+        <div style={{padding:"14px 16px",background:`linear-gradient(135deg,${T.navy},#263B5E)`,borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.85)",fontWeight:700}}>💴 差引支給額（手取り概算）</div>
+          <div style={{fontSize:24,fontWeight:800,color:"#fff",fontFamily:MONO}}>¥{data.netPay.toLocaleString()}</div>
+        </div>
+        <div style={{fontSize:9,color:T.textDim,marginTop:8,lineHeight:1.6}}>
+          ※ 2024年度 協会けんぽ兵庫・月額甲欄基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 社会保険料・所得税 計算ユーティリティ
+// ─────────────────────────────────────────────
+function calcDeductions(grossPay, age) {
+  // ① 厚生年金保険料 (労使折半) 2024年度 18.3% → 本人 9.15%
+  const pensionRate   = 0.0915;
+  // ② 健康保険料 協会けんぽ 兵庫 2024年度 10.01% → 本人 5.005%
+  const healthRate    = 0.05005;
+  // ③ 介護保険料 1.82% → 本人 0.91% ※40～64歳のみ
+  const careRate      = (age >= 40 && age <= 64) ? 0.0091 : 0;
+  // ④ 雇用保険料 医療福祉業 労働者負担 0.6%
+  const employRate    = 0.006;
+
+  const pension    = Math.round(grossPay * pensionRate);
+  const health     = Math.round(grossPay * healthRate);
+  const care       = Math.round(grossPay * careRate);
+  const employment = Math.round(grossPay * employRate);
+  const socialTotal = pension + health + care + employment;
+
+  // ⑤ 所得税 (源泉徴収 月額甲欄 簡易計算)
+  // 課税対象 = 総支給 - 社会保険料合計
+  const taxable = Math.max(0, grossPay - socialTotal);
+  // 月額の課税所得に対する簡易税率 (国税庁 令和6年 月額甲欄近似)
+  let incomeTax = 0;
+  if      (taxable <=  88000) incomeTax = 0;
+  else if (taxable <=  89000) incomeTax = 130;
+  else if (taxable <=  90000) incomeTax = 180;
+  else if (taxable <= 101000) incomeTax = Math.round((taxable - 89000) * 0.05 + 180);
+  else if (taxable <= 141000) incomeTax = Math.round((taxable - 101000) * 0.10 + 780);
+  else if (taxable <= 162500) incomeTax = Math.round((taxable - 141000) * 0.10 + 4780);
+  else if (taxable <= 180167) incomeTax = Math.round((taxable - 162500) * 0.20 + 6930);
+  else if (taxable <= 250000) incomeTax = Math.round((taxable - 180167) * 0.20 + 10463);
+  else if (taxable <= 300000) incomeTax = Math.round((taxable - 250000) * 0.20 + 24429);
+  else if (taxable <= 350000) incomeTax = Math.round((taxable - 300000) * 0.30 + 34429);
+  else if (taxable <= 400000) incomeTax = Math.round((taxable - 350000) * 0.30 + 49429);
+  else if (taxable <= 500000) incomeTax = Math.round((taxable - 400000) * 0.30 + 64429);
+  else                         incomeTax = Math.round((taxable - 500000) * 0.40 + 94429);
+
+  const deductTotal = socialTotal + incomeTax;
+  const netPay = grossPay - deductTotal;
+  return { pension, health, care, employment, socialTotal, incomeTax, deductTotal, netPay };
+}
+
 // ─────────────────────────────────────────────
 // ATTENDANCE PAGE
 // ─────────────────────────────────────────────
@@ -1548,6 +1747,10 @@ function AttendancePage({ user }) {
   const [stdHoursPerDay, setStdHoursPerDay] = useState(8); // 残業判定ライン（時間）
   const [overtimeRate, setOvertimeRate] = useState(1.25); // 残業割増率
   const [defaultWage, setDefaultWage] = useState(1500); // デフォルト時給
+  const [staffAgeSettings, setStaffAgeSettings] = useState({}); // staffId -> age
+  const [defaultAge, setDefaultAge] = useState(35); // デフォルト年齢
+  const [showPayslip, setShowPayslip] = useState(false); // 給与明細モーダル
+  const [payslipTarget, setPayslipTarget] = useState(null); // 給与明細対象
   const isManager = user.role === "admin" || user.role === "manager";
   const todayStr = today.toISOString().split('T')[0];
 
@@ -1746,13 +1949,14 @@ function AttendancePage({ user }) {
 
   // CSVエクスポート（全スタッフ）
   const exportAllCSV = () => {
-    const header = ['スタッフ名', '職種', '出勤日数', '総勤務時間', '残業時間', '時給(円)', '基本給(円)', '残業代(円)', '合計給与(円)'];
-    const rows = allStaffSummary.map(s => [
+    const header = ['スタッフ名', '職種', '出勤日数', '総勤務時間', '残業時間', '時給(円)', '基本給(円)', '残業代(円)', '総支給(円)', '厚生年金(円)', '健康保険(円)', '介護保険(円)', '雇用保険(円)', '所得税(円)', '控除合計(円)', '手取概算(円)'];
+    const rows = allStaffSummary.map(s => { const ded=calcDeductions(s.totalPay, staffAgeSettings[s.id]||defaultAge); return [
       s.name, POSITIONS[s.pos]?.l||s.pos, s.workDays,
       `${s.totalH}:${String(s.totalM).padStart(2,'0')}`,
       `${s.overtimeH}:${String(s.overtimeM).padStart(2,'0')}`,
-      s.wage, s.regularPay, s.overtimePay, s.totalPay
-    ]);
+      s.wage, s.regularPay, s.overtimePay, s.totalPay,
+      ded.pension, ded.health, ded.care, ded.employment, ded.incomeTax, ded.deductTotal, ded.netPay
+    ]; });
     const total = allStaffSummary.reduce((acc,s) => ({
       workDays: acc.workDays+s.workDays, totalMin: acc.totalMin+s.totalMin,
       overtimeMin: acc.overtimeMin+s.overtimeMin, totalPay: acc.totalPay+s.totalPay
@@ -1791,6 +1995,7 @@ function AttendancePage({ user }) {
 
   return (
     <div style={{ padding:20, maxWidth:1000 }}>
+      {showPayslip && <PayslipModal data={payslipTarget} onClose={()=>setShowPayslip(false)} />}
       {/* ヘッダー */}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:10 }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>⏱️ 勤怠管理</h2>
@@ -1893,64 +2098,92 @@ function AttendancePage({ user }) {
             </Card>
           </div>
 
-          {/* 給与計算サマリー */}
-          <Card style={{ marginBottom:16, borderLeft:`3px solid ${T.purple}` }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:T.purple }}>💰 給与計算（概算）</div>
-              <button onClick={() => setShowWageEdit(p=>!p)} style={{ fontSize:11, color:T.textSub, background:"none", border:`1px solid ${T.border}`, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontFamily:FONT }}>
-                時給設定
-              </button>
-            </div>
-            {showWageEdit && (
-              <div style={{ padding:"10px 12px", background:T.surface, borderRadius:8, marginBottom:12 }}>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px,1fr))", gap:10 }}>
-                  <div>
-                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>時給（円/h）</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <input type="number" value={wageSettings[user.id]||defaultWage}
-                        onChange={e => setWageSettings(p=>({...p,[user.id]:parseInt(e.target.value)||defaultWage}))}
-                        style={{ width:90, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
-                      <span style={{ fontSize:11, color:T.textDim }}>円</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>残業割増率</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontSize:12, color:T.textDim }}>×</span>
-                      <input type="number" step="0.01" value={overtimeRate}
-                        onChange={e => setOvertimeRate(parseFloat(e.target.value)||1.25)}
-                        style={{ width:70, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
-                      <span style={{ fontSize:11, color:T.textDim }}>倍</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize:11, color:T.textSub, marginBottom:4 }}>残業判定ライン</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <input type="number" step="0.5" value={stdHoursPerDay}
-                        onChange={e => setStdHoursPerDay(parseFloat(e.target.value)||8)}
-                        style={{ width:65, padding:"4px 8px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:13 }} />
-                      <span style={{ fontSize:11, color:T.textDim }}>h/日超</span>
-                    </div>
+          {/* 給与計算サマリー（控除込み） */}
+          {(() => {
+            const grossPay = regularPay + overtimePay;
+            const myAge = staffAgeSettings[user.id] || defaultAge;
+            const ded = calcDeductions(grossPay, myAge);
+            return (
+              <Card style={{ marginBottom:16, borderLeft:`3px solid ${T.purple}` }}>
+                {/* ヘッダー */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:T.purple }}>💰 給与計算（概算）</div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button onClick={() => { setPayslipTarget({ name:selectedStaffName, year, month, regularPay, overtimePay, grossPay, age:myAge, wage:myWage, totalH, totalM, otH, otM, totalDays, ...ded }); setShowPayslip(true); }}
+                      style={{ fontSize:11, color:T.blue, background:T.bluePale, border:`1px solid ${T.blueLight}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:FONT, fontWeight:600 }}>
+                      📄 給与明細
+                    </button>
+                    <button onClick={() => setShowWageEdit(p=>!p)}
+                      style={{ fontSize:11, color:T.textSub, background:"none", border:`1px solid ${T.border}`, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontFamily:FONT }}>
+                      ⚙️ 設定
+                    </button>
                   </div>
                 </div>
-              </div>
-            )}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8 }}>
-              <div style={{ textAlign:"center", padding:"10px 8px", background:T.surface, borderRadius:8 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:T.text, fontFamily:MONO }}>¥{regularPay.toLocaleString()}</div>
-                <div style={{ fontSize:10, color:T.textSub }}>基本給</div>
-              </div>
-              <div style={{ textAlign:"center", padding:"10px 8px", background:T.coralSoft, borderRadius:8 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:T.coral, fontFamily:MONO }}>¥{overtimePay.toLocaleString()}</div>
-                <div style={{ fontSize:10, color:T.coral }}>残業代</div>
-              </div>
-              <div style={{ textAlign:"center", padding:"10px 8px", background:T.purpleSoft, borderRadius:8 }}>
-                <div style={{ fontSize:16, fontWeight:800, color:T.purple, fontFamily:MONO }}>¥{(regularPay+overtimePay).toLocaleString()}</div>
-                <div style={{ fontSize:10, color:T.purple, fontWeight:600 }}>合計</div>
-              </div>
-            </div>
-            <div style={{ fontSize:10, color:T.textDim, marginTop:8 }}>※ 時給¥{myWage}・残業割増×{OVERTIME_RATE}倍・{STD_HOURS_PER_DAY}h/日超を残業として計算。実際の給与は雇用契約に基づきます。</div>
-          </Card>
+
+                {/* 設定パネル */}
+                {showWageEdit && (
+                  <div style={{ padding:"10px 12px", background:T.surface, borderRadius:8, marginBottom:12 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px,1fr))", gap:10 }}>
+                      {[
+                        { label:"時給（円/h）", node: <><input type="number" value={wageSettings[user.id]||defaultWage} onChange={e=>setWageSettings(p=>({...p,[user.id]:parseInt(e.target.value)||defaultWage}))} style={{width:80,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>円</span></> },
+                        { label:"年齢（介護保険判定）", node: <><input type="number" value={staffAgeSettings[user.id]||defaultAge} onChange={e=>setStaffAgeSettings(p=>({...p,[user.id]:parseInt(e.target.value)||35}))} style={{width:55,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>歳</span></> },
+                        { label:"残業割増率", node: <><span style={{fontSize:11,color:T.textDim}}>×</span><input type="number" step="0.01" value={overtimeRate} onChange={e=>setOvertimeRate(parseFloat(e.target.value)||1.25)} style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>倍</span></> },
+                        { label:"残業判定ライン", node: <><input type="number" step="0.5" value={stdHoursPerDay} onChange={e=>setStdHoursPerDay(parseFloat(e.target.value)||8)} style={{width:55,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>h/日超</span></> },
+                      ].map(({label,node},i) => (
+                        <div key={i}>
+                          <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>{label}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>{node}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 支給 */}
+                <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6,letterSpacing:0.5}}>【支　給】</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+                  {[
+                    {label:"基本給", value:regularPay, color:T.text, bg:T.surface},
+                    {label:"残業代", value:overtimePay, color:T.coral, bg:T.coralSoft},
+                    {label:"総支給額", value:grossPay, color:T.purple, bg:T.purpleSoft, bold:true},
+                  ].map(({label,value,color,bg,bold},i)=>(
+                    <div key={i} style={{textAlign:"center",padding:"8px 6px",background:bg,borderRadius:8}}>
+                      <div style={{fontSize:bold?15:13,fontWeight:bold?800:700,color,fontFamily:MONO}}>¥{value.toLocaleString()}</div>
+                      <div style={{fontSize:10,color,fontWeight:600}}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 控除 */}
+                <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6,letterSpacing:0.5}}>【控　除】</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:6, marginBottom:10 }}>
+                  {[
+                    {label:"厚生年金", value:ded.pension, note:"9.15%"},
+                    {label:"健康保険", value:ded.health, note:"5.005%"},
+                    {label:"介護保険", value:ded.care, note:myAge>=40&&myAge<=64?"0.91%":"対象外"},
+                    {label:"雇用保険", value:ded.employment, note:"0.6%"},
+                    {label:"所得税", value:ded.incomeTax, note:"甲欄"},
+                  ].map(({label,value,note},i)=>(
+                    <div key={i} style={{padding:"7px 8px",background:T.bgAlt||"#FFF8F8",borderRadius:8,border:`1px solid ${T.coralSoft}`}}>
+                      <div style={{fontSize:12,fontWeight:700,color:T.coral,fontFamily:MONO}}>▼¥{value.toLocaleString()}</div>
+                      <div style={{fontSize:9,color:T.textSub}}>{label} <span style={{color:T.textDim}}>({note})</span></div>
+                    </div>
+                  ))}
+                  <div style={{padding:"7px 8px",background:"#FEF3C7",borderRadius:8,border:"1px solid #FDE68A"}}>
+                    <div style={{fontSize:12,fontWeight:800,color:"#92400E",fontFamily:MONO}}>▼¥{ded.deductTotal.toLocaleString()}</div>
+                    <div style={{fontSize:9,color:"#92400E",fontWeight:700}}>控除合計</div>
+                  </div>
+                </div>
+
+                {/* 差引支給額 */}
+                <div style={{padding:"12px 16px",background:`linear-gradient(135deg,${T.navy},#263B5E)`,borderRadius:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontWeight:600}}>💴 差引支給額（手取り概算）</div>
+                  <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:MONO}}>¥{ded.netPay.toLocaleString()}</div>
+                </div>
+                <div style={{ fontSize:10, color:T.textDim, marginTop:8 }}>※ 2024年度 協会けんぽ兵庫・月額甲欄 基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。</div>
+              </Card>
+            );
+          })()}
 
           {/* 勤怠記録一覧 */}
           <Card>
@@ -2039,17 +2272,21 @@ function AttendancePage({ user }) {
                 </div>
               </div>
 
-              {/* スタッフ別時給 */}
+              {/* スタッフ別時給・年齢 */}
               <div>
-                <div style={{ fontSize:11, fontWeight:600, color:T.textSub, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>スタッフ別時給（個別設定）</div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px,1fr))", gap:8 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:T.textSub, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>スタッフ別設定（時給・年齢）</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px,1fr))", gap:8 }}>
                   {STAFF_DATA.map(s => (
-                    <div key={s.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:T.surface, borderRadius:8 }}>
+                    <div key={s.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 10px", background:T.surface, borderRadius:8 }}>
                       <span style={{ fontSize:12, flex:1 }}>{s.name}</span>
                       <input type="number" value={wageSettings[s.id]||defaultWage}
                         onChange={e => setWageSettings(p=>({...p,[s.id]:parseInt(e.target.value)||defaultWage}))}
-                        style={{ width:70, padding:"4px 6px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:12, textAlign:"right" }} />
-                      <span style={{ fontSize:11, color:T.textDim }}>円/h</span>
+                        style={{ width:65, padding:"4px 6px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:12, textAlign:"right" }} />
+                      <span style={{ fontSize:10, color:T.textDim }}>円/h</span>
+                      <input type="number" value={staffAgeSettings[s.id]||defaultAge}
+                        onChange={e => setStaffAgeSettings(p=>({...p,[s.id]:parseInt(e.target.value)||35}))}
+                        style={{ width:45, padding:"4px 6px", borderRadius:6, border:`1px solid ${T.border}`, fontSize:12, textAlign:"right" }} />
+                      <span style={{ fontSize:10, color:T.textDim }}>歳</span>
                     </div>
                   ))}
                 </div>
@@ -2086,7 +2323,7 @@ function AttendancePage({ user }) {
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, fontFamily:FONT }}>
                 <thead>
                   <tr style={{ background:T.surface }}>
-                    {['スタッフ','職種','出勤日','勤務時間','残業','時給','基本給','残業代','合計給与'].map((h,i) => (
+                    {['スタッフ','職種','出勤日','勤務時間','残業','時給','基本給','残業代','総支給','手取概算',''].map((h,i) => (
                       <th key={i} style={{ padding:"10px 12px", textAlign:i<2?'left':'right', fontWeight:700, color:T.textMid, borderBottom:`2px solid ${T.border}`, whiteSpace:"nowrap", fontSize:11 }}>{h}</th>
                     ))}
                   </tr>
@@ -2112,6 +2349,15 @@ function AttendancePage({ user }) {
                         {s.overtimePay>0 ? `¥${s.overtimePay.toLocaleString()}` : '—'}
                       </td>
                       <td style={{ padding:"10px 12px", textAlign:"right", borderBottom:`1px solid ${T.borderLight}`, fontWeight:800, color:T.purple }}>¥{s.totalPay.toLocaleString()}</td>
+                      <td style={{ padding:"10px 12px", textAlign:"right", borderBottom:`1px solid ${T.borderLight}`, fontWeight:800, color:T.navy }}>
+                        ¥{calcDeductions(s.totalPay, staffAgeSettings[s.id]||defaultAge).netPay.toLocaleString()}
+                      </td>
+                      <td style={{ padding:"10px 12px", textAlign:"center", borderBottom:`1px solid ${T.borderLight}` }}>
+                        <button onClick={()=>{ const ded=calcDeductions(s.totalPay, staffAgeSettings[s.id]||defaultAge); setPayslipTarget({name:s.name,year,month,regularPay:s.regularPay,overtimePay:s.overtimePay,grossPay:s.totalPay,age:staffAgeSettings[s.id]||defaultAge,wage:s.wage,totalH:s.totalH,totalM:s.totalM,otH:s.overtimeH,otM:s.overtimeM,totalDays:s.workDays,...ded}); setShowPayslip(true); }}
+                          style={{fontSize:10,color:T.blue,background:T.bluePale,border:`1px solid ${T.blueLight}`,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontFamily:FONT,fontWeight:600,whiteSpace:"nowrap"}}>
+                          📄 明細
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2128,6 +2374,10 @@ function AttendancePage({ user }) {
                     <td style={{ padding:"10px 12px" }}></td>
                     <td style={{ padding:"10px 12px", textAlign:"right", fontWeight:700 }}>¥{allStaffSummary.reduce((a,s)=>a+s.regularPay,0).toLocaleString()}</td>
                     <td style={{ padding:"10px 12px", textAlign:"right", color:T.coral, fontWeight:700 }}>¥{allStaffSummary.reduce((a,s)=>a+s.overtimePay,0).toLocaleString()}</td>
+                    <td style={{ padding:"10px 12px", textAlign:"right", fontWeight:800, color:T.navy }}>
+                      ¥{allStaffSummary.reduce((a,s)=>a+calcDeductions(s.totalPay,staffAgeSettings[s.id]||defaultAge).netPay,0).toLocaleString()}
+                    </td>
+                    <td></td>
                     <td style={{ padding:"10px 12px", textAlign:"right", fontWeight:800, color:T.purple, fontSize:14 }}>¥{allStaffSummary.reduce((a,s)=>a+s.totalPay,0).toLocaleString()}</td>
                   </tr>
                 </tfoot>
