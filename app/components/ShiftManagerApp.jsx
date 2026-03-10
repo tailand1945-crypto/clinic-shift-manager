@@ -1975,6 +1975,145 @@ function AttendancePage({ user }) {
     a.download=`給与計算_${year}年${month}月.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
+  // ── 給与計算テーブル印刷 ──
+  const printAllStaff = () => {
+    if (allStaffSummary.length === 0) return;
+    const rows = allStaffSummary.map(s => {
+      const ded = calcDeductions(s.totalPay, staffAgeSettings[s.id] || defaultAge);
+      return `<tr>
+        <td>${s.name}</td>
+        <td>${POSITIONS[s.pos]?.l || s.pos}</td>
+        <td class="r">${s.workDays}</td>
+        <td class="r">${s.totalH}h${s.totalM}m</td>
+        <td class="r">${s.overtimeH > 0 ? s.overtimeH + 'h' + s.overtimeM + 'm' : '—'}</td>
+        <td class="r">¥${s.wage.toLocaleString()}</td>
+        <td class="r">¥${s.regularPay.toLocaleString()}</td>
+        <td class="r">${s.overtimePay > 0 ? '¥' + s.overtimePay.toLocaleString() : '—'}</td>
+        <td class="r bold">¥${s.totalPay.toLocaleString()}</td>
+        <td class="r red">¥${ded.pension.toLocaleString()}</td>
+        <td class="r red">¥${ded.health.toLocaleString()}</td>
+        <td class="r red">¥${ded.care.toLocaleString()}</td>
+        <td class="r red">¥${ded.employment.toLocaleString()}</td>
+        <td class="r red">¥${ded.incomeTax.toLocaleString()}</td>
+        <td class="r red bold">¥${ded.deductTotal.toLocaleString()}</td>
+        <td class="r navy bold">¥${ded.netPay.toLocaleString()}</td>
+      </tr>`;
+    }).join('');
+    const totPay = allStaffSummary.reduce((a,s)=>a+s.totalPay,0);
+    const totNet = allStaffSummary.reduce((a,s)=>a+calcDeductions(s.totalPay,staffAgeSettings[s.id]||defaultAge).netPay,0);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>給与計算一覧 ${year}年${month}月</title>
+<style>
+  body{font-family:"Hiragino Sans","Yu Gothic","Meiryo",sans-serif;font-size:10px;padding:12px;}
+  h2{font-size:14px;margin:0 0 4px;}
+  .sub{font-size:10px;color:#666;margin-bottom:10px;}
+  table{width:100%;border-collapse:collapse;}
+  th,td{padding:5px 6px;border:1px solid #ddd;white-space:nowrap;}
+  th{background:#1B2A4A;color:#fff;text-align:center;font-size:9px;}
+  .r{text-align:right;}
+  .red{color:#DC2626;}
+  .navy{color:#1B2A4A;}
+  .bold{font-weight:800;}
+  tr:nth-child(even){background:#F8F9FB;}
+  .foot td{background:#F0ECFF;font-weight:800;font-size:11px;}
+  .note{font-size:8px;color:#999;margin-top:8px;}
+  @media print{body{padding:4px;}button{display:none;}}
+</style></head><body>
+<h2>給与計算一覧表</h2>
+<div class="sub">${year}年${month}月分　全${allStaffSummary.length}名　令和7年度 協会けんぽ福岡基準</div>
+<table>
+<thead><tr>
+  <th>氏名</th><th>職種</th><th>出勤日</th><th>勤務時間</th><th>残業</th><th>時給</th>
+  <th>基本給</th><th>残業代</th><th>総支給</th>
+  <th>厚生年金</th><th>健康保険</th><th>介護保険</th><th>雇用保険</th><th>所得税</th>
+  <th>控除合計</th><th>手取概算</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+<tfoot><tr class="foot">
+  <td colspan="8">合　計</td>
+  <td class="r">¥${totPay.toLocaleString()}</td>
+  <td colspan="5"></td>
+  <td></td>
+  <td class="r">¥${totNet.toLocaleString()}</td>
+</tr></tfoot>
+</table>
+<div class="note">※本資料は概算値です。令和7年度（2025年4月〜2026年3月）協会けんぽ福岡・月額甲欄基準。</div>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=1100,height=800');
+    w.document.write(html); w.document.close(); w.focus();
+    setTimeout(() => w.print(), 400);
+  };
+
+  // ── 全スタッフ給与明細 一括印刷 ──
+  const printAllPayslips = () => {
+    if (allStaffSummary.length === 0) return;
+    const pages = allStaffSummary.map(s => {
+      const ded = calcDeductions(s.totalPay, staffAgeSettings[s.id] || defaultAge);
+      const age = staffAgeSettings[s.id] || defaultAge;
+      return `<div class="page">
+        <h2>給　与　明　細　書</h2>
+        <div class="meta-row">
+          <span>対象期間：${year}年${month}月分</span>
+          <span>氏名：${s.name}　様</span>
+          <span>職種：${POSITIONS[s.pos]?.l || s.pos}</span>
+        </div>
+        <div class="meta-row">
+          <span>出勤日数：${s.workDays}日</span>
+          <span>勤務時間：${s.totalH}時間${s.totalM}分</span>
+          <span>残業時間：${s.overtimeH}時間${s.overtimeM}分</span>
+          <span>時給：¥${s.wage.toLocaleString()}</span>
+        </div>
+        <table>
+          <thead><tr><th colspan="2" class="section-head">【支　給】</th></tr></thead>
+          <tbody>
+            <tr><td>基本給</td><td class="r">¥${s.regularPay.toLocaleString()}</td></tr>
+            <tr><td>残業代</td><td class="r">¥${s.overtimePay.toLocaleString()}</td></tr>
+            <tr class="total-row"><td>総支給額</td><td class="r">¥${s.totalPay.toLocaleString()}</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th colspan="2" class="section-head">【控　除】</th></tr></thead>
+          <tbody>
+            <tr class="deduct"><td>厚生年金保険料（9.15%）</td><td class="r">¥${ded.pension.toLocaleString()}</td></tr>
+            <tr class="deduct"><td>健康保険料（5.155% 協会けんぽ福岡）</td><td class="r">¥${ded.health.toLocaleString()}</td></tr>
+            <tr class="deduct"><td>介護保険料（0.795%）${age<40||age>64?' ※対象外':''}</td><td class="r">¥${ded.care.toLocaleString()}</td></tr>
+            <tr class="deduct"><td>雇用保険料（0.55% 一般の事業）</td><td class="r">¥${ded.employment.toLocaleString()}</td></tr>
+            <tr class="deduct"><td>所得税（源泉徴収 月額甲欄）</td><td class="r">¥${ded.incomeTax.toLocaleString()}</td></tr>
+            <tr class="deduct-total"><td>控除合計</td><td class="r">¥${ded.deductTotal.toLocaleString()}</td></tr>
+          </tbody>
+        </table>
+        <div class="net-row">
+          <span>💴 差引支給額（手取り概算）</span>
+          <span class="net-amount">¥${ded.netPay.toLocaleString()}</span>
+        </div>
+        <div class="note">※令和7年度（2025年4月〜2026年3月）協会けんぽ福岡・月額甲欄基準の概算値。実際の給与は雇用契約・標準報酬月額に基づきます。</div>
+      </div>`;
+    }).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>給与明細 ${year}年${month}月 一括印刷</title>
+<style>
+  body{font-family:"Hiragino Sans","Yu Gothic","Meiryo",sans-serif;margin:0;padding:0;}
+  .page{width:170mm;margin:10mm auto;padding:10mm;border:1px solid #ccc;page-break-after:always;box-sizing:border-box;}
+  .page:last-child{page-break-after:avoid;}
+  h2{text-align:center;font-size:16px;border-bottom:3px solid #1B2A4A;padding-bottom:6px;margin:0 0 8px;}
+  .meta-row{display:flex;gap:16px;font-size:10px;color:#555;margin-bottom:4px;flex-wrap:wrap;}
+  table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px;}
+  td,th{padding:5px 8px;border:1px solid #ddd;}
+  .section-head{background:#1B2A4A;color:#fff;font-weight:700;font-size:11px;}
+  .r{text-align:right;font-weight:600;}
+  .total-row td{background:#1B2A4A;color:#fff;font-weight:800;font-size:13px;}
+  .deduct td{color:#DC2626;}
+  .deduct-total td{background:#FEF3C7;color:#92400E;font-weight:800;}
+  .net-row{display:flex;justify-content:space-between;align-items:center;background:#1B2A4A;color:#fff;padding:10px 12px;border-radius:6px;margin-bottom:6px;}
+  .net-amount{font-size:20px;font-weight:800;}
+  .note{font-size:8px;color:#999;}
+  @media print{body{margin:0;}.page{border:none;margin:0;width:100%;}}
+</style></head><body>${pages}</body></html>`;
+    const w = window.open('', '_blank', 'width=800,height=1000');
+    w.document.write(html); w.document.close(); w.focus();
+    setTimeout(() => w.print(), 500);
+  };
+
   const totalDays = records.filter(r=>r.clock_in).length;
   const totalMin = records.reduce((acc,r) => {
     if (!r.clock_in||!r.clock_out) return acc;
@@ -2007,6 +2146,12 @@ function AttendancePage({ user }) {
           <Btn size="sm" variant="secondary" icon="⬇️" onClick={tab===1?exportAllCSV:exportCSV}>
             {tab===1 ? '全スタッフCSV' : 'CSVエクスポート'}
           </Btn>
+          {tab===1 && isManager && (
+            <>
+              <Btn size="sm" variant="secondary" icon="🖨️" onClick={printAllStaff}>一覧印刷</Btn>
+              <Btn size="sm" variant="primary" icon="📄" onClick={printAllPayslips}>明細一括印刷</Btn>
+            </>
+          )}
         </div>
       </div>
 
