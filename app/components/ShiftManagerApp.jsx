@@ -944,6 +944,8 @@ function ApprovalPage({ user, onPendingCountChange }) {
       }, 0);
     }
     setProcessing(null); setRejectModal(null); setRejectReason("");
+    // 承認・却下後は「全て」表示に切り替え（結果が見えるように）
+    if (action !== 'pending') setFilterStatus('all');
   };
 
   const handleBulkApprove = async () => {
@@ -953,6 +955,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
         await handleAction(id, 'approved');
       }
       setBulkSelected(new Set());
+      setFilterStatus('all'); // 一括承認後は全件表示
     } finally { setBulkProcessing(false); }
   };
 
