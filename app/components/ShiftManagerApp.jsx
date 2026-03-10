@@ -217,6 +217,33 @@ function Empty({ icon, title, sub }) {
   );
 }
 
+// グローバルトースト通知
+let _toastCallback = null;
+const toast = (msg, type="success") => { if (_toastCallback) _toastCallback(msg, type); };
+
+function ToastContainer() {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    _toastCallback = (msg, type) => {
+      const id = Date.now();
+      setToasts(prev => [...prev, { id, msg, type }]);
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+    };
+    return () => { _toastCallback = null; };
+  }, []);
+  const bg = { success:T.teal, error:T.coral, info:T.blue, warn:T.amber };
+  const icon = { success:"✅", error:"❌", warn:"⚠️", info:"ℹ️" };
+  return (
+    <div style={{ position:"fixed", bottom:80, left:"50%", transform:"translateX(-50%)", zIndex:9999, display:"flex", flexDirection:"column", gap:8, pointerEvents:"none", alignItems:"center" }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{ background:bg[t.type]||T.teal, color:"#fff", padding:"10px 20px", borderRadius:10, fontSize:13, fontWeight:600, fontFamily:FONT, boxShadow:T.shadowMd, minWidth:220, textAlign:"center" }}>
+          {icon[t.type]||"✅"} {t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────────
@@ -462,7 +489,7 @@ function HomePage({ user, onNav }) {
         const todayStr = `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const startMonth = `${year}-${String(m).padStart(2,'0')}-01`;
         if (user.id !== 'new') {
-          const { data: todayS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).eq('shift_date', todayStr).single();
+          const { data: todayS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).eq('shift_date', todayStr).maybeSingle();
           if (todayS) setTodayShiftType(todayS.shift_type);
           const { data: monthS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).gte('shift_date', startMonth).lte('shift_date', todayStr);
           if (monthS) {
@@ -1255,7 +1282,7 @@ function GeneratePage({ user, onNav }) {
   };
 
   const publishShifts = async () => {
-    if (!isSupabaseConfigured()) { alert('デモモード: 公開操作はSupabase接続後に有効です'); return; }
+    if (!isSupabaseConfigured()) { toast('デモモード: 公開操作はSupabase接続後に有効です', 'info'); return; }
     try {
       const clinicId = await getClinicId();
       await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicId).eq('status','draft');
@@ -1263,8 +1290,8 @@ function GeneratePage({ user, onNav }) {
       if (staffData && staffData.length > 0) {
         await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicId, staff_id:s.id, title:'シフト公開', body:`${genYear}年${genMonth}月のシフトが公開されました`, icon:'📅', read:false })));
       }
-      alert(`${genYear}年${genMonth}月のシフトを公開しました！`);
-    } catch(err) { alert('公開に失敗しました: '+err.message); }
+      toast(`${genYear}年${genMonth}月のシフトを公開しました！`, 'success');
+    } catch(err) { toast('公開に失敗しました: '+err.message, 'error'); }
   };
 
   useEffect(() => () => clearInterval(ref.current), []);
@@ -1728,8 +1755,8 @@ function NotifPage({ user, onUnreadCountChange }) {
       }
       setShowSend(false);
       setSendForm({ target:'all', staffId:'', icon:'📢', title:'', body:'' });
-      alert(`✅ ${targets.length}名に通知を送信しました`);
-    } catch(e) { console.error(e); alert('送信エラー'); }
+      toast(`${targets.length}名に通知を送信しました`, 'success');
+    } catch(e) { console.error(e); toast('通知の送信に失敗しました', 'error'); }
     finally { setSending(false); }
   };
 
@@ -2301,7 +2328,7 @@ function AttendancePage({ user }) {
       }).select().single();
       setTodayRecord(data); setClockedIn(true);
       setRecords(prev => [...prev.filter(r=>r.date!==todayStr), data]);
-    } catch(e) {} finally { setSaving(false); }
+    } catch(e) { toast('打刻に失敗しました', 'error'); console.error(e); } finally { setSaving(false); }
   };
 
   const handleClockOut = async () => {
@@ -2319,7 +2346,7 @@ function AttendancePage({ user }) {
         .eq('id', todayRecord.id).select().single();
       setTodayRecord(data); setClockedIn(false);
       setRecords(prev => prev.map(r=>r.id===data.id?data:r));
-    } catch(e) {} finally { setSaving(false); }
+    } catch(e) { toast('退勤打刻に失敗しました', 'error'); console.error(e); } finally { setSaving(false); }
   };
 
   // CSVエクスポート（個人）
@@ -3099,7 +3126,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
               style={{ width:"100%", padding:"8px 12px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, boxSizing:"border-box" }} />
           </div>
         ))}
-        <Btn style={{ marginTop:4 }} onClick={()=>alert("クリニック情報を保存しました")}>保存する</Btn>
+        <Btn style={{ marginTop:4 }} onClick={()=>toast('クリニック情報を保存しました', 'success')}>保存する</Btn>
       </div>
     ),
     "シフトテンプレート": (
@@ -3118,7 +3145,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
             <button style={{ fontSize:11, color:T.blue, background:"none", border:`1px solid ${T.blue}`, borderRadius:6, padding:"4px 10px", cursor:"pointer", fontFamily:FONT }}>編集</button>
           </div>
         ))}
-        <Btn variant="secondary" onClick={()=>alert("テンプレート追加機能は今後実装予定です")}>＋ テンプレート追加</Btn>
+        <Btn variant="secondary" onClick={()=>toast('テンプレート追加機能は今後実装予定です', 'info')}>＋ テンプレート追加</Btn>
       </div>
     ),
     "人員配置ルール": (
@@ -3139,7 +3166,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
             </div>
           </div>
         ))}
-        <Btn style={{ marginTop:4 }} onClick={()=>alert("人員配置ルールを保存しました")}>保存する</Btn>
+        <Btn style={{ marginTop:4 }} onClick={()=>toast('人員配置ルールを保存しました', 'success')}>保存する</Btn>
       </div>
     ),
     "利用規約": (
@@ -3251,7 +3278,7 @@ export default function ShiftManagerWebApp() {
   const loadStaffProfile = async (uid) => {
     if (!isSupabaseConfigured()) return;
     try {
-      const { data, error } = await supabase.from('staff_profiles').select('*').eq('auth_user_id', uid).single();
+      const { data, error } = await supabase.from('staff_profiles').select('*').eq('auth_user_id', uid).maybeSingle();
       if (data && !error) {
         const posMap = { doctor:'doctor', doctor_ped:'doctor_ped', doctor_int:'doctor_int', doctor_derm:'doctor_derm', doctor_ortho:'doctor_ortho', nurse:'nurse', pt:'pt', ot:'ot', trainer:'trainer', lab:'lab', receptionist:'clerk', clerk:'clerk', technician:'assistant', assistant:'assistant', other:'assistant' };
         setUser({ id:data.id, name:data.last_name+' '+data.first_name, email:data.email||'', pos:posMap[data.position]||'nurse', role:data.user_role, night:data.can_work_night });
@@ -3327,6 +3354,7 @@ export default function ShiftManagerWebApp() {
 
   return (
     <div style={{ display:"flex", height:"100vh", fontFamily:FONT, background:T.bg, overflow:"hidden" }}>
+      <ToastContainer />
       {!isMobile && (
         <Sidebar user={user} active={page} onNav={setPage} onLogout={handleLogout}
           collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(p=>!p)}
