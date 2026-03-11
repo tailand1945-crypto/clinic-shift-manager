@@ -1403,25 +1403,34 @@ function StaffPage({ user }) {
   const [filterPos, setFilterPos] = useState(null);
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showInvite, setShowInvite] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviting, setInviting] = useState(false);
-  const [inviteMsg, setInviteMsg] = useState('');
   const [addForm, setAddForm] = useState({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  // 個別招待モーダル
+  const [inviteTarget, setInviteTarget] = useState(null);
+  const [inviteModalLoading, setInviteModalLoading] = useState(false);
 
-  const handleInvite = async () => {
-    if (!inviteEmail) return;
-    setInviting(true); setInviteMsg('');
+  // スタッフ一覧を再取得（invite_status 反映のためにも使用）
+  const loadStaffs = async () => {
+    if (!isSupabaseConfigured()) { setStaffList(STAFF_DATA); setLoading(false); return; }
     try {
-      const { error } = await supabase.auth.signInWithOtp({ email: inviteEmail, options: { shouldCreateUser: true } });
-      if (error) throw error;
-      setInviteMsg(`✅ ${inviteEmail} に招待メールを送信しました！`);
-      setInviteEmail('');
-    } catch(err) { setInviteMsg('❌ ' + err.message); } finally { setInviting(false); }
+      const { data } = await supabase.from('staff_profiles').select('*').order('position');
+      if (data) setStaffList(data.map(s => ({
+        id: s.id,
+        name: s.last_name + ' ' + s.first_name,
+        pos: s.position || 'nurse',
+        role: s.user_role || s.role,
+        email: s.email || '',
+        night: s.can_work_night || s.night_ok || false,
+        invite_status: s.invite_status || 'not_invited',
+        invite_sent_at: s.invite_sent_at || null,
+        auth_user_id: s.auth_user_id || null,
+      })));
+    } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
   };
+
+  useEffect(() => { loadStaffs(); }, []);
 
   const handleAddStaff = async () => {
     if (!addForm.last_name || !addForm.first_name) { setAddError('名前を入力してください'); return; }
@@ -1431,21 +1440,35 @@ function StaffPage({ user }) {
       const { error } = await supabase.from('staff_profiles').insert({ clinic_id:clinicId, last_name:addForm.last_name, first_name:addForm.first_name, position:addForm.position, role:addForm.role, email:addForm.email, night_ok:addForm.night_ok });
       if (error) throw error;
       setShowAdd(false); setAddForm({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
-      const { data } = await supabase.from('staff_profiles').select('*').order('position');
-      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
+      await loadStaffs();
+      toast(`${addForm.last_name} ${addForm.first_name} を追加しました`, 'success');
     } catch(err) { setAddError(err.message); } finally { setAddSaving(false); }
   };
 
-  useEffect(() => {
-    if (!isSupabaseConfigured()) { setStaffList(STAFF_DATA); setLoading(false); return; }
-    const load = async () => {
-      try {
-        const { data } = await supabase.from('staff_profiles').select('*').order('position');
-        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
-      } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
-    };
-    load();
-  }, []);
+  // 個別招待メール送信（/api/invite-staff 経由）
+  const handleSendInvite = async (email) => {
+    setInviteModalLoading(true);
+    try {
+      const res = await fetch('/api/invite-staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          staffProfileId: inviteTarget.id,
+          staffName: inviteTarget.name,
+          staffRole: inviteTarget.role,
+        }),
+      });
+      const json = await res.json();
+      if (res.status === 409) { toast('このメールアドレスはすでに招待済みか登録済みです', 'error'); return; }
+      if (!res.ok) { toast(json.error || '招待に失敗しました', 'error'); return; }
+      toast(`✉️ ${email} に招待メールを送信しました`, 'success');
+      setInviteTarget(null);
+      await loadStaffs();
+    } catch(err) {
+      toast('通信エラーが発生しました', 'error');
+    } finally { setInviteModalLoading(false); }
+  };
 
   const filtered = staffList.filter(s => {
     if (filterPos && s.pos !== filterPos) return false;
@@ -1453,34 +1476,50 @@ function StaffPage({ user }) {
     return true;
   });
 
+  // 招待ステータスカウント（管理者向けサマリー）
+  const inviteCounts = {
+    accepted: staffList.filter(s => s.invite_status === 'accepted').length,
+    invited:  staffList.filter(s => s.invite_status === 'invited').length,
+    none:     staffList.filter(s => s.invite_status === 'not_invited').length,
+  };
+
   return (
     <div style={{ padding:20, maxWidth:1000 }}>
+      {/* ヘッダー */}
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>👥 スタッフ管理</h2>
         <span style={{ fontSize:12, color:T.textDim }}>{staffList.length}名</span>
         <div style={{ flex:1 }}/>
-        {user.role==="admin" && <div style={{display:'flex',gap:8}}>
-          <Btn variant="secondary" size="sm" icon="✉️" onClick={() => setShowInvite(p=>!p)}>招待メール</Btn>
+        {user.role==="admin" && (
           <Btn variant="primary" size="sm" icon="➕" onClick={() => setShowAdd(p=>!p)}>スタッフ追加</Btn>
-        </div>}
+        )}
       </div>
+
+      {/* 招待状況サマリー（管理者のみ） */}
+      {user.role === 'admin' && !loading && (
+        <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+          {[
+            { label:'✅ 登録済み', count:inviteCounts.accepted, bg:'#f0fdf4', c:'#15803d', border:'#bbf7d0' },
+            { label:'📧 招待中', count:inviteCounts.invited, bg:'#fffbeb', c:'#92400e', border:'#fcd34d' },
+            { label:'未招待', count:inviteCounts.none, bg:T.surface, c:T.textSub, border:T.border },
+          ].map(({ label, count, bg, c, border }) => (
+            <div key={label} style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', background:bg, borderRadius:8, border:`1px solid ${border}`, fontSize:12, fontWeight:600, color:c }}>
+              {label} <span style={{ fontSize:14, fontWeight:800 }}>{count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 検索・フィルター */}
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="名前・メールで検索..." style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, outline:"none", flex:1, minWidth:200 }} />
-        <div style={{ display:"flex", gap:4 }}>
+        <div style={{ display:"flex", gap:4, flexWrap:'wrap' }}>
           <Btn size="sm" variant={!filterPos?"primary":"secondary"} onClick={()=>setFilterPos(null)}>全員</Btn>
           {Object.entries(POSITIONS).map(([k,p]) => <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={()=>setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l}</Btn>)}
         </div>
       </div>
-      {showInvite && (
-        <Card style={{ marginBottom:12, padding:16, borderLeft:`3px solid ${T.blue}` }}>
-          <h3 style={{ margin:"0 0 10px", fontSize:14, fontWeight:700 }}>✉️ 招待メール送信</h3>
-          {inviteMsg && <div style={{ fontSize:12, marginBottom:8, color:inviteMsg.startsWith('✅')?T.teal:T.coral }}>{inviteMsg}</div>}
-          <div style={{ display:'flex', gap:8 }}>
-            <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="staff@example.com" style={{ flex:1, padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT }} />
-            <Btn variant="primary" onClick={handleInvite} disabled={inviting}>{inviting?'送信中...':'送信'}</Btn>
-          </div>
-        </Card>
-      )}
+
+      {/* スタッフ追加フォーム */}
       {showAdd && (
         <Card style={{ marginBottom:12, padding:16, borderLeft:`3px solid ${T.teal}` }}>
           <h3 style={{ margin:"0 0 10px", fontSize:14, fontWeight:700 }}>➕ スタッフ追加</h3>
@@ -1494,7 +1533,7 @@ function StaffPage({ user }) {
               <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>職種</label><select value={addForm.position} onChange={e=>setAddForm(p=>({...p,position:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="doctor">医師</option><option value="doctor_ped">医師：小児科</option><option value="doctor_int">医師：内科</option><option value="doctor_derm">医師：皮膚科</option><option value="doctor_ortho">医師：整形外科</option><option value="nurse">看護師</option><option value="pt">PT</option><option value="ot">OT</option><option value="trainer">スポーツトレーナー</option><option value="lab">検査技師</option><option value="assistant">助手</option><option value="clerk">事務</option></select></div>
               <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>権限</label><select value={addForm.role} onChange={e=>setAddForm(p=>({...p,role:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="staff">スタッフ</option><option value="manager">マネージャー</option><option value="admin">管理者</option></select></div>
             </div>
-            <div><label style={{ fontSize:12, color:T.textSub }}>メール（任意）</label><input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
+            <div><label style={{ fontSize:12, color:T.textSub }}>メール（招待に使用）</label><input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
             <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}><input type="checkbox" checked={addForm.night_ok} onChange={e=>setAddForm(p=>({...p,night_ok:e.target.checked}))} />夜勤可能</label>
             <div style={{ display:'flex', gap:8 }}>
               <Btn variant="secondary" onClick={() => setShowAdd(false)}>キャンセル</Btn>
@@ -1503,23 +1542,168 @@ function StaffPage({ user }) {
           </div>
         </Card>
       )}
+
+      {/* スタッフ一覧 */}
       {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> : <>
+        {/* 職種別カウント */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))", gap:8, marginBottom:16 }}>
           {Object.entries(POSITIONS).map(([k,p]) => { const c=staffList.filter(s=>s.pos===k).length; return <div key={k} style={{ textAlign:"center", padding:"10px", background:p.bg, borderRadius:10 }}><div style={{ fontSize:22, fontWeight:800, color:p.c }}>{c}</div><div style={{ fontSize:10, color:p.c, fontWeight:600 }}>{p.l}</div></div>; })}
         </div>
+        {/* スタッフカード */}
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {filtered.map(s => (
-            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
+            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
+              {/* アバター */}
               <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[s.pos]?.bg||T.surface, color:POSITIONS[s.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, flexShrink:0 }}>{s.name[0]}</div>
+              {/* 名前・職種・メール */}
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}><span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span><PosBadge pos={s.pos} size="xs" /><RoleBadge role={s.role} /></div>
-                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                  <span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span>
+                  <PosBadge pos={s.pos} size="xs" />
+                  <RoleBadge role={s.role} />
+                </div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email || '（メール未設定）'}</div>
               </div>
-              {s.night && <span style={{ fontSize:10, fontWeight:600, color:T.purple, background:T.purpleSoft, padding:"3px 8px", borderRadius:6 }}>夜勤○</span>}
+              {/* 夜勤バッジ */}
+              {s.night && <span style={{ fontSize:10, fontWeight:600, color:T.purple, background:T.purpleSoft, padding:"3px 8px", borderRadius:6, flexShrink:0 }}>夜勤○</span>}
+              {/* 招待ステータス（管理者のみ） */}
+              {user.role === 'admin' && (
+                <div style={{ flexShrink:0 }}>
+                  {s.invite_status === 'accepted' ? (
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700, color:'#15803d', background:'#f0fdf4', border:'1px solid #bbf7d0', padding:'3px 10px', borderRadius:20 }}>
+                      ✅ 登録済み
+                    </span>
+                  ) : s.invite_status === 'invited' ? (
+                    <button
+                      onClick={() => setInviteTarget(s)}
+                      title={`再送信（前回: ${s.invite_sent_at ? new Date(s.invite_sent_at).toLocaleDateString('ja-JP') : '不明'}）`}
+                      style={{ fontSize:11, fontWeight:700, color:'#92400e', background:'#fffbeb', border:'1px solid #fcd34d', padding:'3px 10px', borderRadius:20, cursor:'pointer', whiteSpace:'nowrap' }}
+                    >
+                      📧 招待中・再送
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setInviteTarget(s)}
+                      style={{ fontSize:11, fontWeight:700, color:'#1d4ed8', background:'#eff6ff', border:'1px solid #93c5fd', padding:'3px 10px', borderRadius:20, cursor:'pointer', whiteSpace:'nowrap' }}
+                    >
+                      ✉️ 招待する
+                    </button>
+                  )}
+                </div>
+              )}
             </Card>
           ))}
         </div>
       </>}
+
+      {/* 招待モーダル */}
+      {inviteTarget && (
+        <StaffInviteModal
+          staff={inviteTarget}
+          loading={inviteModalLoading}
+          onSend={handleSendInvite}
+          onClose={() => setInviteTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STAFF INVITE MODAL
+// ─────────────────────────────────────────────
+function StaffInviteModal({ staff, loading, onSend, onClose }) {
+  const [email, setEmail] = useState(staff.email || '');
+  const [emailErr, setEmailErr] = useState('');
+  const isReinvite = staff.invite_status === 'invited';
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const handleSubmit = () => {
+    if (!email.trim()) { setEmailErr('メールアドレスを入力してください'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailErr('有効なメールアドレスを入力してください'); return; }
+    onSend(email.trim());
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:20, backdropFilter:'blur(2px)' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'#fff', borderRadius:18, padding:'28px', width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.18)', fontFamily:FONT }}>
+        {/* ヘッダー */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+          <h3 style={{ fontSize:18, fontWeight:800, color:T.navy, margin:0 }}>
+            {isReinvite ? '📧 招待メールを再送信' : '✉️ スタッフを招待'}
+          </h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:T.textDim, lineHeight:1, padding:'2px 6px' }}>✕</button>
+        </div>
+
+        {/* スタッフ情報 */}
+        <div style={{ display:'flex', alignItems:'center', gap:14, background:T.surface, borderRadius:12, padding:'12px 14px', marginBottom:16 }}>
+          <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[staff.pos]?.bg||T.surface, color:POSITIONS[staff.pos]?.c||T.text, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:800, flexShrink:0 }}>{staff.name[0]}</div>
+          <div>
+            <div style={{ fontWeight:700, fontSize:15, color:T.text }}>{staff.name}</div>
+            <div style={{ fontSize:12, color:T.textSub, marginTop:2 }}>
+              {POSITIONS[staff.pos]?.l || staff.pos}
+              {isReinvite && staff.invite_sent_at && (
+                <span style={{ marginLeft:8, color:T.amber }}>
+                  前回送信: {new Date(staff.invite_sent_at).toLocaleDateString('ja-JP')}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 説明 */}
+        <p style={{ fontSize:13, color:T.textSub, lineHeight:1.7, marginBottom:18 }}>
+          {isReinvite
+            ? '前回の招待リンクは無効になります。新しいリンクをメール送信します。'
+            : 'メールアドレスへ招待リンクを送信します。スタッフはリンクからパスワードを設定してログインできます。'}
+        </p>
+
+        {/* メール入力 */}
+        <div style={{ marginBottom:16 }}>
+          <label style={{ display:'block', fontSize:13, fontWeight:600, color:T.text, marginBottom:6 }}>送信先メールアドレス</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => { setEmail(e.target.value); setEmailErr(''); }}
+            placeholder="staff@clinic.example.com"
+            disabled={loading}
+            autoFocus
+            style={{ width:'100%', padding:'10px 12px', border:`1.5px solid ${emailErr ? T.coral : T.border}`, borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', fontFamily:FONT }}
+          />
+          {emailErr && <p style={{ fontSize:12, color:T.coral, margin:'4px 0 0' }}>{emailErr}</p>}
+        </div>
+
+        {/* フロー説明 */}
+        <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 14px', marginBottom:22 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.05em' }}>招待後の流れ</div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            {[['📧','招待メール受信'],['🔑','パスワード設定'],['✅','ログイン完了']].map(([icon, label], i, arr) => (
+              <span key={i} style={{ display:'flex', alignItems:'center', gap:4 }}>
+                <span style={{ fontSize:13 }}>{icon}</span>
+                <span style={{ fontSize:12, color:'#166534', fontWeight:500 }}>{label}</span>
+                {i < arr.length - 1 && <span style={{ color:'#4ade80', fontWeight:'bold', margin:'0 2px' }}>→</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* ボタン */}
+        <div style={{ display:'flex', gap:12, justifyContent:'flex-end' }}>
+          <Btn variant="secondary" onClick={onClose} disabled={loading}>キャンセル</Btn>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            style={{ padding:'10px 24px', fontSize:14, fontWeight:700, background:loading?T.textDim:'linear-gradient(135deg, #2563eb, #1d4ed8)', color:'#fff', border:'none', borderRadius:10, cursor:loading?'not-allowed':'pointer', fontFamily:FONT, transition:'opacity 0.2s' }}
+          >
+            {loading ? '送信中…' : isReinvite ? '📧 再送信する' : '✉️ 招待メールを送信'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
