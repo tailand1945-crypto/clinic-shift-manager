@@ -1411,6 +1411,10 @@ function StaffPage({ user }) {
   const [addForm, setAddForm] = useState({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  const [editTarget, setEditTarget] = useState(null); // 編集対象スタッフ
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   const handleInvite = async () => {
     if (!inviteEmail) return;
@@ -1436,12 +1440,45 @@ function StaffPage({ user }) {
     } catch(err) { setAddError(err.message); } finally { setAddSaving(false); }
   };
 
+  const handleEditStaff = async () => {
+    if (!editForm.last_name || !editForm.first_name) { setEditError('名前を入力してください'); return; }
+    setEditSaving(true); setEditError('');
+    try {
+      const { error } = await supabase.from('staff_profiles').update({
+        last_name: editForm.last_name,
+        first_name: editForm.first_name,
+        position: editForm.position,
+        role: editForm.role,
+        email: editForm.email,
+        night_ok: editForm.night_ok,
+        can_work_night: editForm.night_ok,
+      }).eq('id', editTarget.id);
+      if (error) throw error;
+      setEditTarget(null);
+      const { data } = await supabase.from('staff_profiles').select('*').order('position');
+      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false, invite_status:s.invite_status, auth_user_id:s.auth_user_id })));
+      toast('スタッフ情報を更新しました', 'success');
+    } catch(err) { setEditError(err.message); } finally { setEditSaving(false); }
+  };
+
+  const handleDeleteStaff = async (staffId, staffName) => {
+    if (!window.confirm(`「${staffName}」を削除しますか？
+この操作は元に戻せません。`)) return;
+    try {
+      const { error } = await supabase.from('staff_profiles').delete().eq('id', staffId);
+      if (error) throw error;
+      const { data } = await supabase.from('staff_profiles').select('*').order('position');
+      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false, invite_status:s.invite_status, auth_user_id:s.auth_user_id })));
+      toast(`${staffName}を削除しました`, 'success');
+    } catch(err) { toast('削除に失敗しました: ' + err.message, 'error'); }
+  };
+
   useEffect(() => {
     if (!isSupabaseConfigured()) { setStaffList(STAFF_DATA); setLoading(false); return; }
     const load = async () => {
       try {
         const { data } = await supabase.from('staff_profiles').select('*').order('position');
-        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
+        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false, invite_status:s.invite_status, auth_user_id:s.auth_user_id })));
       } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
     };
     load();
@@ -1453,8 +1490,73 @@ function StaffPage({ user }) {
     return true;
   });
 
+  const POSITION_OPTIONS = [
+    {v:"doctor",label:"医師"},{v:"doctor_ped",label:"医師：小児科"},{v:"doctor_int",label:"医師：内科"},
+    {v:"doctor_derm",label:"医師：皮膚科"},{v:"doctor_ortho",label:"医師：整形外科"},{v:"nurse",label:"看護師"},
+    {v:"pt",label:"PT"},{v:"ot",label:"OT"},{v:"trainer",label:"スポーツトレーナー"},
+    {v:"lab",label:"検査技師"},{v:"assistant",label:"助手"},{v:"clerk",label:"事務"},
+  ];
+  const inputSt = { width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box', fontFamily:FONT };
+  const selSt   = { width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 };
+
   return (
     <div style={{ padding:20, maxWidth:1000 }}>
+      {/* 編集モーダル */}
+      {editTarget && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+          onClick={()=>setEditTarget(null)}>
+          <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,0.25)',maxHeight:'90vh',overflowY:'auto'}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:800,color:T.navy}}>✏️ スタッフ情報の編集</div>
+              <button onClick={()=>setEditTarget(null)} style={{background:'none',border:'none',fontSize:18,cursor:'pointer',color:T.textDim}}>✕</button>
+            </div>
+            {editError && <div style={{fontSize:12,color:T.coral,marginBottom:10,padding:'8px 12px',background:'#FEF2F2',borderRadius:8}}>⚠️ {editError}</div>}
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{display:'flex',gap:8}}>
+                <div style={{flex:1}}>
+                  <label style={{fontSize:12,color:T.textSub,fontWeight:600}}>姓</label>
+                  <input value={editForm.last_name||''} onChange={e=>setEditForm(p=>({...p,last_name:e.target.value}))} placeholder="山田" style={inputSt} />
+                </div>
+                <div style={{flex:1}}>
+                  <label style={{fontSize:12,color:T.textSub,fontWeight:600}}>名</label>
+                  <input value={editForm.first_name||''} onChange={e=>setEditForm(p=>({...p,first_name:e.target.value}))} placeholder="花子" style={inputSt} />
+                </div>
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <div style={{flex:1}}>
+                  <label style={{fontSize:12,color:T.textSub,fontWeight:600}}>職種</label>
+                  <select value={editForm.position||'nurse'} onChange={e=>setEditForm(p=>({...p,position:e.target.value}))} style={selSt}>
+                    {POSITION_OPTIONS.map(o=><option key={o.v} value={o.v}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={{flex:1}}>
+                  <label style={{fontSize:12,color:T.textSub,fontWeight:600}}>権限</label>
+                  <select value={editForm.role||'staff'} onChange={e=>setEditForm(p=>({...p,role:e.target.value}))} style={selSt}>
+                    <option value="staff">スタッフ</option>
+                    <option value="manager">マネージャー</option>
+                    <option value="admin">管理者</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{fontSize:12,color:T.textSub,fontWeight:600}}>メールアドレス</label>
+                <input type="email" value={editForm.email||''} onChange={e=>setEditForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={inputSt} />
+              </div>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer',padding:'4px 0'}}>
+                <input type="checkbox" checked={!!editForm.night_ok} onChange={e=>setEditForm(p=>({...p,night_ok:e.target.checked}))} />
+                夜勤可能
+              </label>
+              <div style={{display:'flex',gap:8,marginTop:4}}>
+                <Btn variant="secondary" onClick={()=>setEditTarget(null)} style={{flex:1}}>キャンセル</Btn>
+                <Btn variant="primary" onClick={handleEditStaff} disabled={editSaving} style={{flex:2}}>
+                  {editSaving ? '保存中...' : '💾 保存する'}
+                </Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>👥 スタッフ管理</h2>
         <span style={{ fontSize:12, color:T.textDim }}>{staffList.length}名</span>
@@ -1509,13 +1611,36 @@ function StaffPage({ user }) {
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {filtered.map(s => (
-            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
+            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
               <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[s.pos]?.bg||T.surface, color:POSITIONS[s.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, flexShrink:0 }}>{s.name[0]}</div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}><span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span><PosBadge pos={s.pos} size="xs" /><RoleBadge role={s.role} /></div>
-                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email}</div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email||'（メール未設定）'}</div>
               </div>
               {s.night && <span style={{ fontSize:10, fontWeight:600, color:T.purple, background:T.purpleSoft, padding:"3px 8px", borderRadius:6 }}>夜勤○</span>}
+              {/* 招待ステータス */}
+              {user.role==="admin" && (
+                s.auth_user_id
+                  ? <span style={{fontSize:10,fontWeight:600,color:"#059669",background:"#D1FAE5",padding:"3px 8px",borderRadius:6,flexShrink:0}}>✅ 登録済み</span>
+                  : s.invite_status==='invited'
+                    ? <span style={{fontSize:10,fontWeight:600,color:"#D97706",background:"#FEF3C7",padding:"3px 8px",borderRadius:6,flexShrink:0}}>📧 招待中</span>
+                    : <span style={{fontSize:10,fontWeight:600,color:T.textDim,background:T.surface,padding:"3px 8px",borderRadius:6,flexShrink:0}}>未招待</span>
+              )}
+              {/* 編集・削除ボタン（管理者のみ） */}
+              {user.role==="admin" && (
+                <div style={{display:'flex',gap:4,flexShrink:0}}>
+                  <button
+                    onClick={()=>{ setEditTarget(s); setEditForm({ last_name:s.name.split(' ')[0]||'', first_name:s.name.split(' ').slice(1).join(' ')||'', position:s.pos, role:s.role, email:s.email, night_ok:s.night }); setEditError(''); }}
+                    style={{padding:"5px 10px",fontSize:11,fontWeight:600,color:T.blue,background:T.bluePale,border:`1px solid ${T.blueLight}`,borderRadius:6,cursor:'pointer',fontFamily:FONT}}>
+                    ✏️ 編集
+                  </button>
+                  <button
+                    onClick={()=>handleDeleteStaff(s.id, s.name)}
+                    style={{padding:"5px 10px",fontSize:11,fontWeight:600,color:T.coral,background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:6,cursor:'pointer',fontFamily:FONT}}>
+                    🗑️
+                  </button>
+                </div>
+              )}
             </Card>
           ))}
         </div>
