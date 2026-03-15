@@ -1,8 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 export default function SetPasswordPage() {
   const [password, setPassword] = useState('');
@@ -14,7 +19,6 @@ export default function SetPasswordPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const supabase = createClientComponentClient();
   const router = useRouter();
 
   useEffect(() => {
@@ -36,7 +40,7 @@ export default function SetPasswordPage() {
       }
     });
     return function() { subscription.unsubscribe(); };
-  }, [supabase]);
+  }, []);
 
   function getStrength(pw) {
     var score = 0;
