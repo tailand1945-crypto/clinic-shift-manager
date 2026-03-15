@@ -1403,34 +1403,25 @@ function StaffPage({ user }) {
   const [filterPos, setFilterPos] = useState(null);
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState('');
   const [addForm, setAddForm] = useState({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
-  // 個別招待モーダル
-  const [inviteTarget, setInviteTarget] = useState(null);
-  const [inviteModalLoading, setInviteModalLoading] = useState(false);
 
-  // スタッフ一覧を再取得（invite_status 反映のためにも使用）
-  const loadStaffs = async () => {
-    if (!isSupabaseConfigured()) { setStaffList(STAFF_DATA); setLoading(false); return; }
+  const handleInvite = async () => {
+    if (!inviteEmail) return;
+    setInviting(true); setInviteMsg('');
     try {
-      const { data } = await supabase.from('staff_profiles').select('*').order('position');
-      if (data) setStaffList(data.map(s => ({
-        id: s.id,
-        name: s.last_name + ' ' + s.first_name,
-        pos: s.position || 'nurse',
-        role: s.user_role || s.role,
-        email: s.email || '',
-        night: s.can_work_night || s.night_ok || false,
-        invite_status: s.invite_status || 'not_invited',
-        invite_sent_at: s.invite_sent_at || null,
-        auth_user_id: s.auth_user_id || null,
-      })));
-    } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
+      const { error } = await supabase.auth.signInWithOtp({ email: inviteEmail, options: { shouldCreateUser: true } });
+      if (error) throw error;
+      setInviteMsg(`✅ ${inviteEmail} に招待メールを送信しました！`);
+      setInviteEmail('');
+    } catch(err) { setInviteMsg('❌ ' + err.message); } finally { setInviting(false); }
   };
-
-  useEffect(() => { loadStaffs(); }, []);
 
   const handleAddStaff = async () => {
     if (!addForm.last_name || !addForm.first_name) { setAddError('名前を入力してください'); return; }
@@ -1440,35 +1431,21 @@ function StaffPage({ user }) {
       const { error } = await supabase.from('staff_profiles').insert({ clinic_id:clinicId, last_name:addForm.last_name, first_name:addForm.first_name, position:addForm.position, role:addForm.role, email:addForm.email, night_ok:addForm.night_ok });
       if (error) throw error;
       setShowAdd(false); setAddForm({ last_name:'', first_name:'', position:'nurse', role:'staff', email:'', night_ok:false });
-      await loadStaffs();
-      toast(`${addForm.last_name} ${addForm.first_name} を追加しました`, 'success');
+      const { data } = await supabase.from('staff_profiles').select('*').order('position');
+      if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
     } catch(err) { setAddError(err.message); } finally { setAddSaving(false); }
   };
 
-  // 個別招待メール送信（/api/invite-staff 経由）
-  const handleSendInvite = async (email) => {
-    setInviteModalLoading(true);
-    try {
-      const res = await fetch('/api/invite-staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          staffProfileId: inviteTarget.id,
-          staffName: inviteTarget.name,
-          staffRole: inviteTarget.role,
-        }),
-      });
-      const json = await res.json();
-      if (res.status === 409) { toast('このメールアドレスはすでに招待済みか登録済みです', 'error'); return; }
-      if (!res.ok) { toast(json.error || '招待に失敗しました', 'error'); return; }
-      toast(`✉️ ${email} に招待メールを送信しました`, 'success');
-      setInviteTarget(null);
-      await loadStaffs();
-    } catch(err) {
-      toast('通信エラーが発生しました', 'error');
-    } finally { setInviteModalLoading(false); }
-  };
+  useEffect(() => {
+    if (!isSupabaseConfigured()) { setStaffList(STAFF_DATA); setLoading(false); return; }
+    const load = async () => {
+      try {
+        const { data } = await supabase.from('staff_profiles').select('*').order('position');
+        if (data) setStaffList(data.map(s => ({ id:s.id, name:s.last_name+' '+s.first_name, pos:s.position||'nurse', role:s.user_role||s.role, email:s.email||'', night:s.can_work_night||s.night_ok||false })));
+      } catch(err) { setStaffList(STAFF_DATA); } finally { setLoading(false); }
+    };
+    load();
+  }, []);
 
   const filtered = staffList.filter(s => {
     if (filterPos && s.pos !== filterPos) return false;
@@ -1476,50 +1453,34 @@ function StaffPage({ user }) {
     return true;
   });
 
-  // 招待ステータスカウント（管理者向けサマリー）
-  const inviteCounts = {
-    accepted: staffList.filter(s => s.invite_status === 'accepted').length,
-    invited:  staffList.filter(s => s.invite_status === 'invited').length,
-    none:     staffList.filter(s => s.invite_status === 'not_invited').length,
-  };
-
   return (
     <div style={{ padding:20, maxWidth:1000 }}>
-      {/* ヘッダー */}
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>👥 スタッフ管理</h2>
         <span style={{ fontSize:12, color:T.textDim }}>{staffList.length}名</span>
         <div style={{ flex:1 }}/>
-        {user.role==="admin" && (
+        {user.role==="admin" && <div style={{display:'flex',gap:8}}>
+          <Btn variant="secondary" size="sm" icon="✉️" onClick={() => setShowInvite(p=>!p)}>招待メール</Btn>
           <Btn variant="primary" size="sm" icon="➕" onClick={() => setShowAdd(p=>!p)}>スタッフ追加</Btn>
-        )}
+        </div>}
       </div>
-
-      {/* 招待状況サマリー（管理者のみ） */}
-      {user.role === 'admin' && !loading && (
-        <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-          {[
-            { label:'✅ 登録済み', count:inviteCounts.accepted, bg:'#f0fdf4', c:'#15803d', border:'#bbf7d0' },
-            { label:'📧 招待中', count:inviteCounts.invited, bg:'#fffbeb', c:'#92400e', border:'#fcd34d' },
-            { label:'未招待', count:inviteCounts.none, bg:T.surface, c:T.textSub, border:T.border },
-          ].map(({ label, count, bg, c, border }) => (
-            <div key={label} style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', background:bg, borderRadius:8, border:`1px solid ${border}`, fontSize:12, fontWeight:600, color:c }}>
-              {label} <span style={{ fontSize:14, fontWeight:800 }}>{count}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 検索・フィルター */}
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="名前・メールで検索..." style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT, outline:"none", flex:1, minWidth:200 }} />
-        <div style={{ display:"flex", gap:4, flexWrap:'wrap' }}>
+        <div style={{ display:"flex", gap:4 }}>
           <Btn size="sm" variant={!filterPos?"primary":"secondary"} onClick={()=>setFilterPos(null)}>全員</Btn>
           {Object.entries(POSITIONS).map(([k,p]) => <Btn key={k} size="sm" variant={filterPos===k?"primary":"secondary"} onClick={()=>setFilterPos(filterPos===k?null:k)} style={filterPos===k?{background:p.c}:{}}>{p.l}</Btn>)}
         </div>
       </div>
-
-      {/* スタッフ追加フォーム */}
+      {showInvite && (
+        <Card style={{ marginBottom:12, padding:16, borderLeft:`3px solid ${T.blue}` }}>
+          <h3 style={{ margin:"0 0 10px", fontSize:14, fontWeight:700 }}>✉️ 招待メール送信</h3>
+          {inviteMsg && <div style={{ fontSize:12, marginBottom:8, color:inviteMsg.startsWith('✅')?T.teal:T.coral }}>{inviteMsg}</div>}
+          <div style={{ display:'flex', gap:8 }}>
+            <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="staff@example.com" style={{ flex:1, padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, fontFamily:FONT }} />
+            <Btn variant="primary" onClick={handleInvite} disabled={inviting}>{inviting?'送信中...':'送信'}</Btn>
+          </div>
+        </Card>
+      )}
       {showAdd && (
         <Card style={{ marginBottom:12, padding:16, borderLeft:`3px solid ${T.teal}` }}>
           <h3 style={{ margin:"0 0 10px", fontSize:14, fontWeight:700 }}>➕ スタッフ追加</h3>
@@ -1533,7 +1494,7 @@ function StaffPage({ user }) {
               <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>職種</label><select value={addForm.position} onChange={e=>setAddForm(p=>({...p,position:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="doctor">医師</option><option value="doctor_ped">医師：小児科</option><option value="doctor_int">医師：内科</option><option value="doctor_derm">医師：皮膚科</option><option value="doctor_ortho">医師：整形外科</option><option value="nurse">看護師</option><option value="pt">PT</option><option value="ot">OT</option><option value="trainer">スポーツトレーナー</option><option value="lab">検査技師</option><option value="assistant">助手</option><option value="clerk">事務</option></select></div>
               <div style={{ flex:1 }}><label style={{ fontSize:12, color:T.textSub }}>権限</label><select value={addForm.role} onChange={e=>setAddForm(p=>({...p,role:e.target.value}))} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 }}><option value="staff">スタッフ</option><option value="manager">マネージャー</option><option value="admin">管理者</option></select></div>
             </div>
-            <div><label style={{ fontSize:12, color:T.textSub }}>メール（招待に使用）</label><input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
+            <div><label style={{ fontSize:12, color:T.textSub }}>メール（任意）</label><input type="email" value={addForm.email} onChange={e=>setAddForm(p=>({...p,email:e.target.value}))} placeholder="hanako@example.com" style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4, boxSizing:'border-box' }} /></div>
             <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}><input type="checkbox" checked={addForm.night_ok} onChange={e=>setAddForm(p=>({...p,night_ok:e.target.checked}))} />夜勤可能</label>
             <div style={{ display:'flex', gap:8 }}>
               <Btn variant="secondary" onClick={() => setShowAdd(false)}>キャンセル</Btn>
@@ -1542,168 +1503,23 @@ function StaffPage({ user }) {
           </div>
         </Card>
       )}
-
-      {/* スタッフ一覧 */}
       {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> : <>
-        {/* 職種別カウント */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))", gap:8, marginBottom:16 }}>
           {Object.entries(POSITIONS).map(([k,p]) => { const c=staffList.filter(s=>s.pos===k).length; return <div key={k} style={{ textAlign:"center", padding:"10px", background:p.bg, borderRadius:10 }}><div style={{ fontSize:22, fontWeight:800, color:p.c }}>{c}</div><div style={{ fontSize:10, color:p.c, fontWeight:600 }}>{p.l}</div></div>; })}
         </div>
-        {/* スタッフカード */}
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
           {filtered.map(s => (
-            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
-              {/* アバター */}
+            <Card key={s.id} hover style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
               <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[s.pos]?.bg||T.surface, color:POSITIONS[s.pos]?.c||T.text, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, flexShrink:0 }}>{s.name[0]}</div>
-              {/* 名前・職種・メール */}
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                  <span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span>
-                  <PosBadge pos={s.pos} size="xs" />
-                  <RoleBadge role={s.role} />
-                </div>
-                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email || '（メール未設定）'}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}><span style={{ fontSize:14, fontWeight:700 }}>{s.name}</span><PosBadge pos={s.pos} size="xs" /><RoleBadge role={s.role} /></div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>{s.email}</div>
               </div>
-              {/* 夜勤バッジ */}
-              {s.night && <span style={{ fontSize:10, fontWeight:600, color:T.purple, background:T.purpleSoft, padding:"3px 8px", borderRadius:6, flexShrink:0 }}>夜勤○</span>}
-              {/* 招待ステータス（管理者のみ） */}
-              {user.role === 'admin' && (
-                <div style={{ flexShrink:0 }}>
-                  {s.invite_status === 'accepted' ? (
-                    <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700, color:'#15803d', background:'#f0fdf4', border:'1px solid #bbf7d0', padding:'3px 10px', borderRadius:20 }}>
-                      ✅ 登録済み
-                    </span>
-                  ) : s.invite_status === 'invited' ? (
-                    <button
-                      onClick={() => setInviteTarget(s)}
-                      title={`再送信（前回: ${s.invite_sent_at ? new Date(s.invite_sent_at).toLocaleDateString('ja-JP') : '不明'}）`}
-                      style={{ fontSize:11, fontWeight:700, color:'#92400e', background:'#fffbeb', border:'1px solid #fcd34d', padding:'3px 10px', borderRadius:20, cursor:'pointer', whiteSpace:'nowrap' }}
-                    >
-                      📧 招待中・再送
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setInviteTarget(s)}
-                      style={{ fontSize:11, fontWeight:700, color:'#1d4ed8', background:'#eff6ff', border:'1px solid #93c5fd', padding:'3px 10px', borderRadius:20, cursor:'pointer', whiteSpace:'nowrap' }}
-                    >
-                      ✉️ 招待する
-                    </button>
-                  )}
-                </div>
-              )}
+              {s.night && <span style={{ fontSize:10, fontWeight:600, color:T.purple, background:T.purpleSoft, padding:"3px 8px", borderRadius:6 }}>夜勤○</span>}
             </Card>
           ))}
         </div>
       </>}
-
-      {/* 招待モーダル */}
-      {inviteTarget && (
-        <StaffInviteModal
-          staff={inviteTarget}
-          loading={inviteModalLoading}
-          onSend={handleSendInvite}
-          onClose={() => setInviteTarget(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// STAFF INVITE MODAL
-// ─────────────────────────────────────────────
-function StaffInviteModal({ staff, loading, onSend, onClose }) {
-  const [email, setEmail] = useState(staff.email || '');
-  const [emailErr, setEmailErr] = useState('');
-  const isReinvite = staff.invite_status === 'invited';
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const handleSubmit = () => {
-    if (!email.trim()) { setEmailErr('メールアドレスを入力してください'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailErr('有効なメールアドレスを入力してください'); return; }
-    onSend(email.trim());
-  };
-
-  return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:20, backdropFilter:'blur(2px)' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background:'#fff', borderRadius:18, padding:'28px', width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.18)', fontFamily:FONT }}>
-        {/* ヘッダー */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-          <h3 style={{ fontSize:18, fontWeight:800, color:T.navy, margin:0 }}>
-            {isReinvite ? '📧 招待メールを再送信' : '✉️ スタッフを招待'}
-          </h3>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:T.textDim, lineHeight:1, padding:'2px 6px' }}>✕</button>
-        </div>
-
-        {/* スタッフ情報 */}
-        <div style={{ display:'flex', alignItems:'center', gap:14, background:T.surface, borderRadius:12, padding:'12px 14px', marginBottom:16 }}>
-          <div style={{ width:44, height:44, borderRadius:12, background:POSITIONS[staff.pos]?.bg||T.surface, color:POSITIONS[staff.pos]?.c||T.text, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:800, flexShrink:0 }}>{staff.name[0]}</div>
-          <div>
-            <div style={{ fontWeight:700, fontSize:15, color:T.text }}>{staff.name}</div>
-            <div style={{ fontSize:12, color:T.textSub, marginTop:2 }}>
-              {POSITIONS[staff.pos]?.l || staff.pos}
-              {isReinvite && staff.invite_sent_at && (
-                <span style={{ marginLeft:8, color:T.amber }}>
-                  前回送信: {new Date(staff.invite_sent_at).toLocaleDateString('ja-JP')}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 説明 */}
-        <p style={{ fontSize:13, color:T.textSub, lineHeight:1.7, marginBottom:18 }}>
-          {isReinvite
-            ? '前回の招待リンクは無効になります。新しいリンクをメール送信します。'
-            : 'メールアドレスへ招待リンクを送信します。スタッフはリンクからパスワードを設定してログインできます。'}
-        </p>
-
-        {/* メール入力 */}
-        <div style={{ marginBottom:16 }}>
-          <label style={{ display:'block', fontSize:13, fontWeight:600, color:T.text, marginBottom:6 }}>送信先メールアドレス</label>
-          <input
-            type="email"
-            value={email}
-            onChange={e => { setEmail(e.target.value); setEmailErr(''); }}
-            placeholder="staff@clinic.example.com"
-            disabled={loading}
-            autoFocus
-            style={{ width:'100%', padding:'10px 12px', border:`1.5px solid ${emailErr ? T.coral : T.border}`, borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', fontFamily:FONT }}
-          />
-          {emailErr && <p style={{ fontSize:12, color:T.coral, margin:'4px 0 0' }}>{emailErr}</p>}
-        </div>
-
-        {/* フロー説明 */}
-        <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 14px', marginBottom:22 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.05em' }}>招待後の流れ</div>
-          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-            {[['📧','招待メール受信'],['🔑','パスワード設定'],['✅','ログイン完了']].map(([icon, label], i, arr) => (
-              <span key={i} style={{ display:'flex', alignItems:'center', gap:4 }}>
-                <span style={{ fontSize:13 }}>{icon}</span>
-                <span style={{ fontSize:12, color:'#166534', fontWeight:500 }}>{label}</span>
-                {i < arr.length - 1 && <span style={{ color:'#4ade80', fontWeight:'bold', margin:'0 2px' }}>→</span>}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* ボタン */}
-        <div style={{ display:'flex', gap:12, justifyContent:'flex-end' }}>
-          <Btn variant="secondary" onClick={onClose} disabled={loading}>キャンセル</Btn>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            style={{ padding:'10px 24px', fontSize:14, fontWeight:700, background:loading?T.textDim:'linear-gradient(135deg, #2563eb, #1d4ed8)', color:'#fff', border:'none', borderRadius:10, cursor:loading?'not-allowed':'pointer', fontFamily:FONT, transition:'opacity 0.2s' }}
-          >
-            {loading ? '送信中…' : isReinvite ? '📧 再送信する' : '✉️ 招待メールを送信'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2254,43 +2070,50 @@ function PayslipModal({ data, onClose }) {
 }
 
 // ─────────────────────────────────────────────
-// 社会保険料・所得税 計算ユーティリティ
-// 令和7年度（2025年4月〜2026年3月）福岡県基準
+// 社会保険料・所得税 計算ユーティリティ（カスタムレート対応版）
 // ─────────────────────────────────────────────
-function calcDeductions(grossPay, age) {
-  // ① 厚生年金保険料 (労使折半) 令和7年度 18.3% → 本人 9.15%
-  const pensionRate   = 0.0915;
-  // ② 健康保険料 協会けんぽ 福岡県 令和7年度 10.31% → 本人 5.155%
-  const healthRate    = 0.05155;
-  // ③ 介護保険料 全国一律 令和7年度 1.59% → 本人 0.795% ※40〜64歳のみ
-  const careRate      = (age >= 40 && age <= 64) ? 0.00795 : 0;
-  // ④ 雇用保険料 一般の事業（医療業含む）令和7年度 労働者負担 5.5/1000 = 0.55%
-  const employRate    = 0.0055;
+function calcDeductions(grossPay, age, opts = {}) {
+  const {
+    pensionRate = 0.0915,
+    healthRate  = 0.05155,
+    employRate  = 0.0055,
+    careRateVal = 0.00795,
+    careAgeMin  = 40,
+    careAgeMax  = 64,
+    taxBracket  = 'ko',
+  } = opts;
 
   const pension    = Math.round(grossPay * pensionRate);
   const health     = Math.round(grossPay * healthRate);
+  const careRate   = (age >= careAgeMin && age <= careAgeMax) ? careRateVal : 0;
   const care       = Math.round(grossPay * careRate);
   const employment = Math.round(grossPay * employRate);
   const socialTotal = pension + health + care + employment;
 
-  // ⑤ 所得税 (源泉徴収 月額甲欄 簡易計算)
-  // 課税対象 = 総支給 - 社会保険料合計
   const taxable = Math.max(0, grossPay - socialTotal);
-  // 月額の課税所得に対する簡易税率 (国税庁 令和6年 月額甲欄近似)
   let incomeTax = 0;
-  if      (taxable <=  88000) incomeTax = 0;
-  else if (taxable <=  89000) incomeTax = 130;
-  else if (taxable <=  90000) incomeTax = 180;
-  else if (taxable <= 101000) incomeTax = Math.round((taxable - 89000) * 0.05 + 180);
-  else if (taxable <= 141000) incomeTax = Math.round((taxable - 101000) * 0.10 + 780);
-  else if (taxable <= 162500) incomeTax = Math.round((taxable - 141000) * 0.10 + 4780);
-  else if (taxable <= 180167) incomeTax = Math.round((taxable - 162500) * 0.20 + 6930);
-  else if (taxable <= 250000) incomeTax = Math.round((taxable - 180167) * 0.20 + 10463);
-  else if (taxable <= 300000) incomeTax = Math.round((taxable - 250000) * 0.20 + 24429);
-  else if (taxable <= 350000) incomeTax = Math.round((taxable - 300000) * 0.30 + 34429);
-  else if (taxable <= 400000) incomeTax = Math.round((taxable - 350000) * 0.30 + 49429);
-  else if (taxable <= 500000) incomeTax = Math.round((taxable - 400000) * 0.30 + 64429);
-  else                         incomeTax = Math.round((taxable - 500000) * 0.40 + 94429);
+  if (taxBracket === 'otsu') {
+    if      (taxable <=  60000) incomeTax = Math.round(taxable * 0.03063);
+    else if (taxable <= 170000) incomeTax = Math.round(taxable * 0.08168);
+    else if (taxable <= 240000) incomeTax = Math.round(taxable * 0.10210);
+    else if (taxable <= 410000) incomeTax = Math.round(taxable * 0.20420);
+    else if (taxable <= 520000) incomeTax = Math.round(taxable * 0.23483);
+    else                         incomeTax = Math.round(taxable * 0.35734);
+  } else {
+    if      (taxable <=  88000) incomeTax = 0;
+    else if (taxable <=  89000) incomeTax = 130;
+    else if (taxable <=  90000) incomeTax = 180;
+    else if (taxable <= 101000) incomeTax = Math.round((taxable - 89000) * 0.05 + 180);
+    else if (taxable <= 141000) incomeTax = Math.round((taxable - 101000) * 0.10 + 780);
+    else if (taxable <= 162500) incomeTax = Math.round((taxable - 141000) * 0.10 + 4780);
+    else if (taxable <= 180167) incomeTax = Math.round((taxable - 162500) * 0.20 + 6930);
+    else if (taxable <= 250000) incomeTax = Math.round((taxable - 180167) * 0.20 + 10463);
+    else if (taxable <= 300000) incomeTax = Math.round((taxable - 250000) * 0.20 + 24429);
+    else if (taxable <= 350000) incomeTax = Math.round((taxable - 300000) * 0.30 + 34429);
+    else if (taxable <= 400000) incomeTax = Math.round((taxable - 350000) * 0.30 + 49429);
+    else if (taxable <= 500000) incomeTax = Math.round((taxable - 400000) * 0.30 + 64429);
+    else                         incomeTax = Math.round((taxable - 500000) * 0.40 + 94429);
+  }
 
   const deductTotal = socialTotal + incomeTax;
   const netPay = grossPay - deductTotal;
@@ -2324,6 +2147,10 @@ function AttendancePage({ user }) {
   const [defaultWage, setDefaultWage] = useState(1500); // デフォルト時給
   const [staffAgeSettings, setStaffAgeSettings] = useState({}); // staffId -> age
   const [defaultAge, setDefaultAge] = useState(35); // デフォルト年齢
+  const [staffPaySettings, setStaffPaySettings] = useState({}); // staffId -> 保険料率等
+  const [staffManualOverride, setStaffManualOverride] = useState({}); // staffId -> 手動入力値
+  const updStaffPay = (id, key, val) => setStaffPaySettings(p => ({ ...p, [id]: { ...p[id], [key]: val } }));
+  const updManual = (id, key, val) => setStaffManualOverride(p => ({ ...p, [id]: { ...p[id], [key]: val } }));
   const [showPayslip, setShowPayslip] = useState(false); // 給与明細モーダル
   const [payslipTarget, setPayslipTarget] = useState(null); // 給与明細対象
   const [editRecord, setEditRecord] = useState(null); // 編集中レコード
@@ -2730,17 +2557,24 @@ function AttendancePage({ user }) {
     setTimeout(() => w.print(), 500);
   };
 
-  const totalDays = records.filter(r=>r.clock_in).length;
-  const totalMin = records.reduce((acc,r) => {
+  const _autoDays = records.filter(r=>r.clock_in).length;
+  const _autoTotalMin = records.reduce((acc,r) => {
     if (!r.clock_in||!r.clock_out) return acc;
     return acc + Math.max(0, (new Date(r.clock_out)-new Date(r.clock_in))/1000/60-(r.break_minutes||60));
   }, 0);
-  const totalOvertimeMin = records.reduce((acc,r) => acc + calcOvertime(r), 0);
+  const _autoOvertimeMin = records.reduce((acc,r) => acc + calcOvertime(r), 0);
+  const myManual = staffManualOverride[user.id] || {};
+  const useManual = !!myManual.useManual;
+  const totalDays        = useManual && myManual.workDays    != null ? Number(myManual.workDays)    : _autoDays;
+  const totalMin         = useManual && myManual.totalMin    != null ? Number(myManual.totalMin)    : _autoTotalMin;
+  const totalOvertimeMin = useManual && myManual.overtimeMin != null ? Number(myManual.overtimeMin) : _autoOvertimeMin;
   const totalH = Math.floor(totalMin/60); const totalM = Math.round(totalMin%60);
   const otH = Math.floor(totalOvertimeMin/60); const otM = Math.round(totalOvertimeMin%60);
   const myWage = wageSettings[user.id] || defaultWage;
-  const regularPay = Math.round((totalMin-totalOvertimeMin)/60*myWage);
-  const overtimePay = Math.round(totalOvertimeMin/60*myWage*OVERTIME_RATE);
+  const _autoRegularPay  = Math.round((totalMin-totalOvertimeMin)/60*myWage);
+  const _autoOvertimePay = Math.round(totalOvertimeMin/60*myWage*OVERTIME_RATE);
+  const regularPay  = useManual && myManual.basicPay != null ? Number(myManual.basicPay) : _autoRegularPay;
+  const overtimePay = _autoOvertimePay;
 
   const prevMonth = () => { if(month===1){setMonth(12);setYear(y=>y-1);}else setMonth(m=>m-1); };
   const nextMonth = () => { if(month===12){setMonth(1);setYear(y=>y+1);}else setMonth(m=>m+1); };
@@ -2941,7 +2775,7 @@ function AttendancePage({ user }) {
               <div style={{ fontSize:10, color:T.textSub, marginTop:2 }}>残業時間</div>
             </Card>
             <Card style={{ textAlign:"center", padding:14 }}>
-              <div style={{ fontSize:26, fontWeight:800, color:T.amber, fontFamily:MONO }}>{records.filter(r=>r.status==='absent').length}</div>
+              <div style={{ fontSize:26, fontWeight:800, color:T.amber, fontFamily:MONO }}>{(useManual && myManual.absenceDays != null ? Number(myManual.absenceDays) : records.filter(r=>r.status==='absent').length)}</div>
               <div style={{ fontSize:10, color:T.textSub, marginTop:2 }}>欠勤日数</div>
             </Card>
           </div>
@@ -2950,12 +2784,23 @@ function AttendancePage({ user }) {
           {(() => {
             const grossPay = regularPay + overtimePay;
             const myAge = staffAgeSettings[user.id] || defaultAge;
-            const ded = calcDeductions(grossPay, myAge);
+            const myPay = staffPaySettings[user.id] || {};
+            const dedOpts = {
+              pensionRate: myPay.pensionRate != null ? myPay.pensionRate : 0.0915,
+              healthRate:  myPay.healthRate  != null ? myPay.healthRate  : 0.05155,
+              employRate:  myPay.employRate  != null ? myPay.employRate  : 0.0055,
+              careRateVal: myPay.careRateVal != null ? myPay.careRateVal : 0.00795,
+              careAgeMin:  myPay.careAgeMin  != null ? myPay.careAgeMin  : 40,
+              careAgeMax:  myPay.careAgeMax  != null ? myPay.careAgeMax  : 64,
+              taxBracket:  myPay.taxBracket  || 'ko',
+            };
+            const ded = calcDeductions(grossPay, myAge, dedOpts);
+            const inCare = myAge >= dedOpts.careAgeMin && myAge <= dedOpts.careAgeMax;
             return (
               <Card style={{ marginBottom:16, borderLeft:`3px solid ${T.purple}` }}>
                 {/* ヘッダー */}
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:T.purple }}>💰 給与計算（概算）</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:T.purple }}>💰 給与計算（概算）{useManual && <span style={{fontSize:10,color:"#D97706",marginLeft:6,background:"#FEF3C7",padding:"1px 6px",borderRadius:10}}>✏️ 手動入力中</span>}</div>
                   <div style={{ display:"flex", gap:6 }}>
                     <button onClick={() => { setPayslipTarget({ name:selectedStaffName, year, month, regularPay, overtimePay, grossPay, age:myAge, wage:myWage, totalH, totalM, otH, otM, totalDays, ...ded }); setShowPayslip(true); }}
                       style={{ fontSize:11, color:T.blue, background:T.bluePale, border:`1px solid ${T.blueLight}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:FONT, fontWeight:600 }}>
@@ -2969,14 +2814,28 @@ function AttendancePage({ user }) {
                 </div>
 
                 {/* 設定パネル */}
-                {showWageEdit && (
-                  <div style={{ padding:"10px 12px", background:T.surface, borderRadius:8, marginBottom:12 }}>
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px,1fr))", gap:10 }}>
+                {showWageEdit && (() => {
+                  const myPay2 = staffPaySettings[user.id] || {};
+                  const myAge2 = staffAgeSettings[user.id] || defaultAge;
+                  const dedOpts2 = {
+                    pensionRate: myPay2.pensionRate != null ? myPay2.pensionRate : 0.0915,
+                    healthRate:  myPay2.healthRate  != null ? myPay2.healthRate  : 0.05155,
+                    employRate:  myPay2.employRate  != null ? myPay2.employRate  : 0.0055,
+                    careRateVal: myPay2.careRateVal != null ? myPay2.careRateVal : 0.00795,
+                    careAgeMin:  myPay2.careAgeMin  != null ? myPay2.careAgeMin  : 40,
+                    careAgeMax:  myPay2.careAgeMax  != null ? myPay2.careAgeMax  : 64,
+                    taxBracket:  myPay2.taxBracket  || 'ko',
+                  };
+                  const IS2 = (w) => ({width:w,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right",background:"#fff"});
+                  return (
+                  <div style={{ padding:"12px 14px", background:T.surface, borderRadius:10, marginBottom:14, border:`1px solid ${T.borderLight}` }}>
+                    <div style={{fontSize:11,fontWeight:700,color:T.navy,marginBottom:8,paddingBottom:4,borderBottom:`1px solid ${T.borderLight}`}}>📌 基本設定</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(155px,1fr))", gap:10, marginBottom:14 }}>
                       {[
-                        { label:"時給（円/h）", node: <><input type="number" value={wageSettings[user.id]||defaultWage} onChange={e=>setWageSettings(p=>({...p,[user.id]:parseInt(e.target.value)||defaultWage}))} style={{width:80,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>円</span></> },
-                        { label:"年齢（介護保険判定）", node: <><input type="number" value={staffAgeSettings[user.id]||defaultAge} onChange={e=>setStaffAgeSettings(p=>({...p,[user.id]:parseInt(e.target.value)||35}))} style={{width:55,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>歳</span></> },
-                        { label:"残業割増率", node: <><span style={{fontSize:11,color:T.textDim}}>×</span><input type="number" step="0.01" value={overtimeRate} onChange={e=>setOvertimeRate(parseFloat(e.target.value)||1.25)} style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>倍</span></> },
-                        { label:"残業判定ライン", node: <><input type="number" step="0.5" value={stdHoursPerDay} onChange={e=>setStdHoursPerDay(parseFloat(e.target.value)||8)} style={{width:55,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right"}} /><span style={{fontSize:11,color:T.textDim}}>h/日超</span></> },
+                        { label:"時給（円/h）", node: <><input type="number" value={wageSettings[user.id]||defaultWage} onChange={e=>setWageSettings(p=>({...p,[user.id]:parseInt(e.target.value)||defaultWage}))} style={IS2(80)} /><span style={{fontSize:11,color:T.textDim}}>円</span></> },
+                        { label:"年齢（介護保険判定）", node: <><input type="number" value={myAge2} onChange={e=>setStaffAgeSettings(p=>({...p,[user.id]:parseInt(e.target.value)||35}))} style={IS2(55)} /><span style={{fontSize:11,color:T.textDim}}>歳</span></> },
+                        { label:"残業割増率", node: <><span style={{fontSize:11,color:T.textDim}}>×</span><input type="number" step="0.01" value={overtimeRate} onChange={e=>setOvertimeRate(parseFloat(e.target.value)||1.25)} style={IS2(60)} /><span style={{fontSize:11,color:T.textDim}}>倍</span></> },
+                        { label:"残業判定ライン", node: <><input type="number" step="0.5" value={stdHoursPerDay} onChange={e=>setStdHoursPerDay(parseFloat(e.target.value)||8)} style={IS2(55)} /><span style={{fontSize:11,color:T.textDim}}>h/日超</span></> },
                       ].map(({label,node},i) => (
                         <div key={i}>
                           <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>{label}</div>
@@ -2984,8 +2843,80 @@ function AttendancePage({ user }) {
                         </div>
                       ))}
                     </div>
+                    <div style={{fontSize:11,fontWeight:700,color:T.navy,marginBottom:8,paddingBottom:4,borderBottom:`1px solid ${T.borderLight}`}}>🏥 社会保険料率（本人負担分）</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(155px,1fr))", gap:10, marginBottom:14 }}>
+                      {[
+                        { label:"厚生年金率（%）", key:"pensionRate", def:9.15, cur:dedOpts2.pensionRate },
+                        { label:"健康保険率（%）", key:"healthRate",  def:5.155, cur:dedOpts2.healthRate },
+                        { label:"雇用保険率（%）", key:"employRate",  def:0.55, cur:dedOpts2.employRate },
+                        { label:"介護保険率（%）", key:"careRateVal", def:0.795, cur:dedOpts2.careRateVal },
+                      ].map(({label,key,cur})=>(
+                        <div key={key}>
+                          <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>{label}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <input type="number" step="0.001" value={(cur*100).toFixed(3)}
+                              onChange={e=>updStaffPay(user.id,key,parseFloat(e.target.value)/100||0)}
+                              style={IS2(75)} />
+                            <span style={{fontSize:11,color:T.textDim}}>%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:T.navy,marginBottom:8,paddingBottom:4,borderBottom:`1px solid ${T.borderLight}`}}>👴 介護保険 対象年齢 / 所得税区分</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(155px,1fr))", gap:10, marginBottom:14 }}>
+                      <div>
+                        <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>対象年齢（下限）</div>
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <input type="number" value={dedOpts2.careAgeMin} onChange={e=>updStaffPay(user.id,'careAgeMin',parseInt(e.target.value)||40)} style={IS2(55)} />
+                          <span style={{fontSize:11,color:T.textDim}}>歳以上</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>対象年齢（上限）</div>
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <input type="number" value={dedOpts2.careAgeMax} onChange={e=>updStaffPay(user.id,'careAgeMax',parseInt(e.target.value)||64)} style={IS2(55)} />
+                          <span style={{fontSize:11,color:T.textDim}}>歳以下</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>所得税区分</div>
+                        <select value={dedOpts2.taxBracket} onChange={e=>updStaffPay(user.id,'taxBracket',e.target.value)}
+                          style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:11,background:"#fff",cursor:"pointer",width:"100%"}}>
+                          <option value="ko">甲欄（扶養控除申告書あり）</option>
+                          <option value="otsu">乙欄（申告書なし）</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:T.navy,marginBottom:8,paddingBottom:4,borderBottom:`1px solid ${T.borderLight}`}}>
+                      ✏️ 手動入力
+                      <label style={{marginLeft:10,cursor:"pointer",fontWeight:400,color:useManual?T.blue:T.textSub,fontSize:11}}>
+                        <input type="checkbox" checked={!!useManual} onChange={e=>updManual(user.id,'useManual',e.target.checked)} style={{marginRight:4}} />
+                        手動入力モード {useManual ? 'ON' : 'OFF'}
+                      </label>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(155px,1fr))", gap:10 }}>
+                      {[
+                        { label:"出勤日数（日）",     key:"workDays",    unit:"日", def:_autoDays,                                                  step:1 },
+                        { label:"総勤務時間（分）",   key:"totalMin",    unit:"分", def:Math.round(_autoTotalMin),                                  step:1 },
+                        { label:"残業時間（分）",     key:"overtimeMin", unit:"分", def:Math.round(_autoOvertimeMin),                               step:1 },
+                        { label:"欠勤日数（日）",     key:"absenceDays", unit:"日", def:records.filter(r=>r.status==='absent').length,              step:1 },
+                        { label:"基本給 手動（円）",  key:"basicPay",    unit:"円", def:_autoRegularPay,                                            step:100 },
+                      ].map(({label,key,unit,def,step})=>(
+                        <div key={key} style={{opacity:useManual?1:0.4}}>
+                          <div style={{fontSize:10,color:T.textSub,marginBottom:4}}>{label}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <input type="number" step={step} disabled={!useManual}
+                              value={myManual[key]!=null?myManual[key]:def}
+                              onChange={e=>updManual(user.id,key,parseFloat(e.target.value))}
+                              style={{...IS2(85),opacity:useManual?1:0.5,cursor:useManual?"text":"not-allowed"}} />
+                            <span style={{fontSize:11,color:T.textDim}}>{unit}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* 支給 */}
                 <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6,letterSpacing:0.5}}>【支　給】</div>
@@ -3006,11 +2937,11 @@ function AttendancePage({ user }) {
                 <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginBottom:6,letterSpacing:0.5}}>【控　除】</div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:6, marginBottom:10 }}>
                   {[
-                    {label:"厚生年金", value:ded.pension, note:"9.15%"},
-                    {label:"健康保険", value:ded.health, note:"5.155% 福岡"},
-                    {label:"介護保険", value:ded.care, note:myAge>=40&&myAge<=64?"0.795%":"対象外"},
-                    {label:"雇用保険", value:ded.employment, note:"0.55%"},
-                    {label:"所得税", value:ded.incomeTax, note:"甲欄"},
+                    {label:"厚生年金", value:ded.pension, note:`${(dedOpts.pensionRate*100).toFixed(3)}%`},
+                    {label:"健康保険", value:ded.health, note:`${(dedOpts.healthRate*100).toFixed(3)}%`},
+                    {label:"介護保険", value:ded.care, note:inCare?`${(dedOpts.careRateVal*100).toFixed(3)}%`:"対象外"},
+                    {label:"雇用保険", value:ded.employment, note:`${(dedOpts.employRate*100).toFixed(3)}%`},
+                    {label:"所得税", value:ded.incomeTax, note:dedOpts.taxBracket==='ko'?"甲欄":"乙欄"},
                   ].map(({label,value,note},i)=>(
                     <div key={i} style={{padding:"7px 8px",background:T.bgAlt||"#FFF8F8",borderRadius:8,border:`1px solid ${T.coralSoft}`}}>
                       <div style={{fontSize:12,fontWeight:700,color:T.coral,fontFamily:MONO}}>▼¥{value.toLocaleString()}</div>
