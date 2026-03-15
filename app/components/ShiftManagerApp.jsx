@@ -497,18 +497,18 @@ function HomePage({ user, onNav }) {
         const todayStr = `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const startMonth = `${year}-${String(m).padStart(2,'0')}-01`;
         if (user.id !== 'new') {
-          const { data: todayS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).eq('shift_date', todayStr).maybeSingle();
+          const { data: todayS } = await supabase.from('shifts').select('shift_type').eq('target_staff_id', user.id).eq('shift_date', todayStr).maybeSingle();
           if (todayS) setTodayShiftType(todayS.shift_type);
-          const { data: monthS } = await supabase.from('shifts').select('shift_type').eq('staff_id', user.id).gte('shift_date', startMonth).lte('shift_date', todayStr);
+          const { data: monthS } = await supabase.from('shifts').select('shift_type').eq('target_staff_id', user.id).gte('shift_date', startMonth).lte('shift_date', todayStr);
           if (monthS) {
             const workDays = monthS.filter(s => s.shift_type !== 'off' && s.shift_type !== 'paid').length;
             const nightCount = monthS.filter(s => s.shift_type === 'night').length;
-            const { data: reqData } = await supabase.from('shift_requests').select('status').eq('staff_id', user.id);
+            const { data: reqData } = await supabase.from('shift_requests').select('status').eq('target_staff_id', user.id);
             const approved = reqData ? reqData.filter(r => r.status === 'approved').length : 0;
             const reflectRate = monthS.length > 0 ? Math.round((approved / Math.max(monthS.length,1)) * 100) : 94;
             setStats({ workDays: workDays||14, nightCount: nightCount||2, paidLeft:12, reflectRate: reflectRate||94 });
           }
-          const { data: upcoming } = await supabase.from('shifts').select('shift_date, shift_type').eq('staff_id', user.id).gt('shift_date', todayStr).order('shift_date').limit(5);
+          const { data: upcoming } = await supabase.from('shifts').select('shift_date, shift_type').eq('target_staff_id', user.id).gt('shift_date', todayStr).order('shift_date').limit(5);
           if (upcoming) setUpcomingShifts(upcoming);
         }
         const { data: todayAll } = await supabase.from('shifts').select('id').eq('shift_date', todayStr).neq('shift_type','off').neq('shift_type','paid');
@@ -530,7 +530,7 @@ function HomePage({ user, onNav }) {
           } else {
             const { data: myN } = await supabase.from('notifications')
               .select('*')
-              .eq('staff_id', user.id)
+              .eq('target_staff_id', user.id)
               .order('created_at', { ascending:false })
               .limit(10);
             nData = myN;
@@ -772,7 +772,7 @@ function RequestPage({ user }) {
     const load = async () => {
       try {
         let query = supabase.from('shift_requests').select('*, staff_profiles(last_name, first_name, position)').eq('target_month', `${year}-${String(month).padStart(2,'0')}`).order('request_date');
-        if (!isManager) query = query.eq('staff_id', user.id);
+        if (!isManager) query = query.eq('target_staff_id', user.id);
         const { data } = await query;
         setMyRequests((data || []).map(r => ({
           ...r,
@@ -1020,7 +1020,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
                 ? `${reqSnapshot.request_date}の希望シフト（${SHIFTS[reqSnapshot.preferred_shift]?.f}）が承認されました`
                 : `${reqSnapshot.request_date}の希望シフトが却下されました${reason ? `（理由: ${reason}）` : ''}`;
               await supabase.from('notifications').insert([{
-                clinic_id: clinicId, staff_id: reqSnapshot.staff_id,
+                clinic_id: clinicId, target_staff_id: reqSnapshot.staff_id, staff_id: reqSnapshot.staff_id,
                 title: action === 'approved' ? '✅ 希望シフト承認' : '❌ 希望シフト却下',
                 body: notifBody, icon: action === 'approved' ? '✅' : '❌', read: false,
               }]);
@@ -1313,7 +1313,7 @@ function GeneratePage({ user, onNav }) {
       await supabase.from('shifts').update({ status:'published' }).eq('clinic_id', clinicId).eq('status','draft');
       const { data: staffData } = await supabase.from('staff_profiles').select('id').eq('clinic_id', clinicId);
       if (staffData && staffData.length > 0) {
-        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicId, staff_id:s.id, title:'シフト公開', body:`${genYear}年${genMonth}月のシフトが公開されました`, icon:'📅', read:false })));
+        await supabase.from('notifications').insert(staffData.map(s => ({ clinic_id:clinicId, target_staff_id:s.id, staff_id:s.id, title:'シフト公開', body:`${genYear}年${genMonth}月のシフトが公開されました`, icon:'📅', read:false })));
       }
       toast(`${genYear}年${genMonth}月のシフトを公開しました！`, 'success');
     } catch(err) { toast('公開に失敗しました: '+err.message, 'error'); }
@@ -1713,7 +1713,7 @@ function SwapPage({ user }) {
       const clinicId = await getClinicId();
       const { error: err } = await supabase.from('shift_exchanges').insert({ clinic_id:clinicId, requester_id:user.id, target_id:form.target_id, requester_date:form.requester_date, target_date:form.target_date, reason:form.reason, status:'pending' });
       if (err) throw err;
-      await supabase.from('notifications').insert([{ clinic_id:clinicId, staff_id:form.target_id, title:'交換リクエスト', body:`${user.name||'スタッフ'}さんから${form.requester_date}のシフト交換リクエストが届いています`, icon:'🔄', read:false }]);
+      await supabase.from('notifications').insert([{ clinic_id:clinicId, target_staff_id:form.target_id, staff_id:form.target_id, title:'交換リクエスト', body:`${user.name||'スタッフ'}さんから${form.requester_date}のシフト交換リクエストが届いています`, icon:'🔄', read:false }]);
       setShowForm(false); setForm({ target_id:'', requester_date:'', target_date:'', reason:'' });
       loadData();
     } catch(err) { setError(err.message); } finally { setSaving(false); }
@@ -1740,7 +1740,7 @@ function SwapPage({ user }) {
         try {
           const clinicId = await getClinicId();
           if (clinicId) {
-            await supabase.from('notifications').insert([{ clinic_id:clinicId, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
+            await supabase.from('notifications').insert([{ clinic_id:clinicId, target_staff_id:sw.requester_id, staff_id:sw.requester_id, title:'シフト交換承認', body:`${sw.requester_date}のシフト交換が承認されました`, icon:'🔄', read:false }]);
           }
         } catch(notifErr) { console.warn('通知insert失敗（無視）:', notifErr); }
       }
@@ -1838,7 +1838,7 @@ function NotifPage({ user, onUnreadCountChange }) {
     }
     try {
       const { data } = await supabase.from('notifications').select('*')
-        .eq('staff_id', user.id).order('created_at', { ascending:false });
+        .eq('target_staff_id', user.id).order('created_at', { ascending:false });
       setNotifs(data || []);
     } catch(err) { console.error(err); }
     finally { setLoading(false); }
@@ -1854,7 +1854,7 @@ function NotifPage({ user, onUnreadCountChange }) {
   const markAllRead = async () => {
     setNotifs(p => p.map(n => ({...n, read:true})));
     if (isSupabaseConfigured()) {
-      try { await supabase.from('notifications').update({read:true}).eq('staff_id',user.id).eq('read',false); } catch(e) {}
+      try { await supabase.from('notifications').update({read:true}).eq('target_staff_id',user.id).eq('read',false); } catch(e) {}
     }
   };
   const deleteNotif = async (id, e) => {
@@ -1868,7 +1868,7 @@ function NotifPage({ user, onUnreadCountChange }) {
     if (!window.confirm('すべての通知を削除しますか？')) return;
     setNotifs([]);
     if (isSupabaseConfigured()) {
-      try { await supabase.from('notifications').delete().eq('staff_id', user.id); } catch(e) {}
+      try { await supabase.from('notifications').delete().eq('target_staff_id', user.id); } catch(e) {}
     }
   };
 
@@ -1896,11 +1896,11 @@ function NotifPage({ user, onUnreadCountChange }) {
       }
       const clinicId = await getClinicId();
       await supabase.from('notifications').insert(
-        targets.map(sid => ({ clinic_id:clinicId, staff_id:sid, ...newNotif }))
+        targets.map(sid => ({ clinic_id:clinicId, target_staff_id:sid, staff_id:sid, ...newNotif }))
       );
       // 自分宛ならリストに追加
       if (targets.includes(user.id)) {
-        const { data } = await supabase.from('notifications').select('*').eq('staff_id',user.id).order('created_at',{ascending:false});
+        const { data } = await supabase.from('notifications').select('*').eq('target_staff_id',user.id).order('created_at',{ascending:false});
         setNotifs(data || []);
       }
       setShowSend(false);
@@ -2478,14 +2478,14 @@ function AttendancePage({ user }) {
     try {
       const now = new Date().toISOString();
       if (!isSupabaseConfigured()) {
-        const rec = { id:`local_${Date.now()}`, staff_id:user.id, date:todayStr, clock_in:now, clock_out:null, break_minutes:60, status:'present' };
+        const rec = { id:`local_${Date.now()}`, target_staff_id:user.id, staff_id:user.id, date:todayStr, clock_in:now, clock_out:null, break_minutes:60, status:'present' };
         setTodayRecord(rec); setClockedIn(true);
         setRecords(prev => [...prev.filter(r=>r.date!==todayStr), rec]);
         setSaving(false); return;
       }
       const clinicId = await getClinicId();
       const { data } = await supabase.from('attendance_records').insert({
-        clinic_id:clinicId, staff_id:user.id, date:todayStr, clock_in:now, status:'present'
+        clinic_id:clinicId, target_staff_id:user.id, staff_id:user.id, date:todayStr, clock_in:now, status:'present'
       }).select().single();
       setTodayRecord(data); setClockedIn(true);
       setRecords(prev => [...prev.filter(r=>r.date!==todayStr), data]);
@@ -3567,7 +3567,7 @@ export default function ShiftManagerWebApp() {
     if (!user) return;
     if (!isSupabaseConfigured()) { setUnreadNotifCount(0); return; }
     supabase.from('notifications').select('id', { count:'exact' })
-      .eq('staff_id', user.id).eq('read', false)
+      .eq('target_staff_id', user.id).eq('read', false)
       .then(({ count }) => { if (count != null) setUnreadNotifCount(count); })
       .catch(() => setUnreadNotifCount(0));
   }, [user]);
