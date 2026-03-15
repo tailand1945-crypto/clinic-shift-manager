@@ -468,6 +468,14 @@ function HomePage({ user, onNav }) {
   const [todayCount, setTodayCount] = useState(0);
   const [pendingExchanges, setPendingExchanges] = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // ページが表示されるたびに通知を再取得
+  useEffect(() => {
+    const handleFocus = () => setRefreshKey(k => k + 1);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
 
   useEffect(() => {
     const _today = new Date();
@@ -524,7 +532,7 @@ function HomePage({ user, onNav }) {
       } catch(err) { console.error(err); }
     };
     load();
-  }, [user.id]);
+  }, [user.id, refreshKey]);
 
   // デモモード補完: 今後シフトがない場合サンプルを表示
   const today2 = new Date();
@@ -590,7 +598,10 @@ function HomePage({ user, onNav }) {
           })}
         </Card>
         <Card>
-          <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>🔔 最近の通知</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:T.text }}>🔔 最近の通知</div>
+            <button onClick={()=>setRefreshKey(k=>k+1)} style={{ fontSize:11, color:T.blue, background:T.bluePale, border:`1px solid ${T.blueLight}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:FONT }}>🔄 更新</button>
+          </div>
           {notifs.length === 0 ? <div style={{ fontSize:13, color:T.textDim, textAlign:'center', padding:20 }}>通知はありません</div> :
           notifs.map((n, i) => (
             <div key={n.id} style={{ display:"flex", gap:10, padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none", opacity:n.read?0.6:1 }}>
