@@ -515,19 +515,11 @@ function HomePage({ user, onNav }) {
         if (todayAll) setTodayCount(todayAll.length);
         const { data: exData } = await supabase.from('shift_exchanges').select('id').eq('status','pending');
         if (exData) setPendingExchanges(exData.length);
-        const { data: nData } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false }).limit(5);
-        if (nData && nData.length > 0) {
+        const { data: nData } = await supabase.from('notifications').select('*').eq('staff_id', user.id).order('created_at', { ascending:false }).limit(10);
+        if (nData) {
           setNotifs(nData);
           setUnreadNotifs(nData.filter(n => !n.read).length);
         } else {
-          // DB に通知がない場合はサンプルを表示
-          const demoNotifs = [
-            { id:'d1', title:'シフト公開', body:`${_today.getFullYear()}年${_today.getMonth()+1}月のシフトが公開されました。`, icon:'📅', read:false, created_at: new Date(_today.getTime()-1000*60*30).toISOString() },
-            { id:'d2', title:'希望申請 承認', body:'3月の勤務希望申請が承認されました。', icon:'✅', read:false, created_at: new Date(_today.getTime()-1000*60*60*3).toISOString() },
-            { id:'d3', title:'シフト交換リクエスト', body:'佐藤 健一さんからシフト交換リクエストが届いています。', icon:'🔄', read:true, created_at: new Date(_today.getTime()-1000*60*60*24).toISOString() },
-          ];
-          setNotifs(demoNotifs);
-          setUnreadNotifs(demoNotifs.filter(n => !n.read).length);
         }
       } catch(err) { console.error(err); }
     };
