@@ -1879,7 +1879,14 @@ function NotifPage({ user, onUnreadCountChange }) {
     if (!window.confirm('すべての通知を削除しますか？')) return;
     setNotifs([]);
     if (isSupabaseConfigured()) {
-      try { await supabase.from('notifications').delete().eq('target_staff_id', user.id); } catch(e) {}
+      try {
+        const clinicId = await getClinicId();
+        if (clinicId) {
+          await supabase.from('notifications').delete().eq('clinic_id', clinicId);
+        } else {
+          await supabase.from('notifications').delete().eq('target_staff_id', user.id);
+        }
+      } catch(e) { console.error('全削除エラー:', e); }
     }
   };
 
