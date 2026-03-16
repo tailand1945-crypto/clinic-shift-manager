@@ -515,26 +515,15 @@ function HomePage({ user, onNav }) {
         if (todayAll) setTodayCount(todayAll.length);
         const { data: exData } = await supabase.from('shift_exchanges').select('id').eq('status','pending');
         if (exData) setPendingExchanges(exData.length);
-        // 通知取得：まず自分宛を取得、管理者は clinic_id でも取得
+        // 通知取得：自分宛（target_staff_id = 自分）の通知のみ表示
         let nData = null;
         try {
-          const isAdmin = user.role === 'admin' || user.role === 'manager';
-          if (isAdmin) {
-            const clinicId = await getClinicId();
-            const { data: allN } = await supabase.from('notifications')
-              .select('*')
-              .eq('clinic_id', clinicId)
-              .order('created_at', { ascending:false })
-              .limit(20);
-            nData = allN;
-          } else {
-            const { data: myN } = await supabase.from('notifications')
-              .select('*')
-              .eq('target_staff_id', user.id)
-              .order('created_at', { ascending:false })
-              .limit(10);
-            nData = myN;
-          }
+          const { data: myN } = await supabase.from('notifications')
+            .select('*')
+            .eq('target_staff_id', user.id)
+            .order('created_at', { ascending:false })
+            .limit(10);
+          nData = myN;
         } catch(nErr) { console.error('通知取得エラー:', nErr); }
         if (nData && nData.length > 0) {
           setNotifs(nData);
