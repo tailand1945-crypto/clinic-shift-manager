@@ -1278,14 +1278,36 @@ function GeneratePage({ user, onNav }) {
       const rows = [];
       const days = new Date(genYear, genMonth, 0).getDate();
       // シフトタイプをローテーションで自動割当（スタッフ名に依存しない）
-      const shiftTypes = ['day','day','day','morning','evening','off','off'];
+      // 休日8日/月になるよう均等配置
+      // 30日中8日休み = 約26.7% → 7パターン中2休み(28.6%)より少ない
+      // シフトパターン: 日勤3・早番1・遅番1・夜勤1・休み2 = 8パターン → 休み2/8=25%
+      const shiftPool = ['day','day','day','morning','late','off','off','off'];
       staffData.forEach((sp, idx) => {
         const staffRequests = reqData ? reqData.filter(r => r.staff_id === sp.id) : [];
+        // 月の総日数から休日8日を均等に配置
+        const offDays = new Set();
+        // 休日を均等に分散させる（月8日）
+        const targetOffDays = 8;
+        const interval = Math.floor(days / targetOffDays);
+        for (let i = 0; i < targetOffDays; i++) {
+          // スタッフごとにオフセットを変えて均等化
+          const offDay = ((i * interval + idx * 3) % days) + 1;
+          offDays.add(offDay);
+        }
         for (let d = 1; d <= days; d++) {
           const dateStr = `${genYear}-${String(genMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const req = staffRequests.find(r => r.request_date === dateStr);
-          const autoType = shiftTypes[(idx + d) % shiftTypes.length];
-          rows.push({ clinic_id:clinicId, staff_id:sp.id, shift_date:dateStr, shift_type:req?req.preferred_shift:autoType, status:'draft' });
+          let autoType;
+          if (req) {
+            autoType = req.preferred_shift;
+          } else if (offDays.has(d)) {
+            autoType = 'off';
+          } else {
+            // 休日以外はシフトを割り当て（早番・日勤・遅番をローテーション）
+            const workTypes = ['day','day','morning','late','day'];
+            autoType = workTypes[(idx + d) % workTypes.length];
+          }
+          rows.push({ clinic_id:clinicId, staff_id:sp.id, shift_date:dateStr, shift_type:autoType, status:'draft' });
         }
       });
       const { error } = await supabase.from('shifts').upsert(rows, { onConflict:'staff_id,shift_date' });
