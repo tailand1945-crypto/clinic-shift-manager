@@ -3231,7 +3231,7 @@ function AttendancePage({ user }) {
               <div>
                 <div style={{ fontSize:11, fontWeight:600, color:T.textSub, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>スタッフ別設定（時給・年齢）</div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px,1fr))", gap:8 }}>
-                  {STAFF_DATA.map(s => (
+                  {(staffList.length > 0 ? staffList : STAFF_DATA).map(s => (
                     <div key={s.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 10px", background:T.surface, borderRadius:8 }}>
                       <span style={{ fontSize:12, flex:1 }}>{s.name}</span>
                       <input type="number" value={wageSettings[s.id]||defaultWage}
