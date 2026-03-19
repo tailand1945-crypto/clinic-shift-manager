@@ -2376,7 +2376,7 @@ function AttendancePage({ user }) {
         setClockedIn(!!todayRec?.clock_in && !todayRec?.clock_out);
         if (isManager) {
           const { data: sp } = await supabase.from('staff_profiles').select('id, last_name, first_name, position, user_role');
-          if (sp) setStaffList(sp);
+          if (sp) setStaffList(sp.map(s => ({ ...s, name: s.last_name + ' ' + (s.first_name||'') })));
         }
       } catch(e) {
         setRecords(genDemoRecords(user.id, year, month));
