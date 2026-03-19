@@ -876,6 +876,19 @@ function RequestPage({ user }) {
               <div style={{ fontSize:20, fontWeight:800, color:T.textMid, fontFamily:MONO }}>{myRequests.length}</div>
               <div style={{ fontSize:10, color:T.textSub, fontWeight:600 }}>合計</div>
             </div>
+            {myRequests.some(r=>r.status==='approved'||r.status==='rejected') && (
+              <button onClick={async()=>{
+                if(!window.confirm('承認済み・却下済みの希望を一括削除しますか？')) return;
+                const ids = myRequests.filter(r=>r.status==='approved'||r.status==='rejected').map(r=>r.id);
+                try {
+                  if(isSupabaseConfigured()) await supabase.from('shift_requests').delete().in('id', ids);
+                  setMyRequests(p=>p.filter(r=>r.status==='pending'));
+                  toast('一括削除しました', 'success');
+                } catch(e) { toast('削除に失敗しました','error'); }
+              }} style={{ marginLeft:'auto', padding:"8px 14px", fontSize:12, fontWeight:600, color:T.coral, background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8, cursor:"pointer", fontFamily:FONT, alignSelf:'center' }}>
+                🗑️ 承認済み・却下を一括削除
+              </button>
+            )}
           </div>
 
           {reqLoading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
@@ -915,6 +928,20 @@ function RequestPage({ user }) {
                     {r.status === 'rejected' && r.reject_reason && (
                       <div style={{ marginTop:8, padding:"6px 10px", background:T.coralSoft, borderRadius:6, fontSize:12, color:T.coral }}>
                         却下理由: {r.reject_reason}
+                      </div>
+                    )}
+                    {(r.status==='approved'||r.status==='rejected') && (
+                      <div style={{ display:"flex", justifyContent:"flex-end", marginTop:8 }}>
+                        <button onClick={async()=>{
+                          if(!window.confirm('この希望シフト記録を削除しますか？')) return;
+                          try {
+                            if(isSupabaseConfigured()) await supabase.from('shift_requests').delete().eq('id',r.id);
+                            setMyRequests(p=>p.filter(x=>x.id!==r.id));
+                            toast('削除しました','success');
+                          } catch(e) { toast('削除に失敗しました','error'); }
+                        }} style={{ fontSize:11, color:T.textDim, background:"none", border:`1px solid ${T.border}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:FONT }}>
+                          🗑️ 削除
+                        </button>
                       </div>
                     )}
                   </Card>
