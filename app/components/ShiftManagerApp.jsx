@@ -1730,6 +1730,17 @@ function SwapPage({ user }) {
     } catch(err) { setError(err.message); } finally { setSaving(false); }
   };
 
+  const handleDeleteSwap = async (id) => {
+    if (!window.confirm('このシフト交換記録を削除しますか？')) return;
+    try {
+      if (isSupabaseConfigured()) {
+        await supabase.from('shift_exchanges').delete().eq('id', id);
+      }
+      setSwaps(p => p.filter(s => s.id !== id));
+      toast('削除しました', 'success');
+    } catch(e) { toast('削除に失敗しました', 'error'); }
+  };
+
   const handleApprove = async (id, approved) => {
     // まずローカルstateを即時更新（UIに反映）
     setSwaps(prev => prev.map(s => s.id===id ? {...s, status: approved?'approved':'rejected'} : s));
@@ -1809,7 +1820,20 @@ function SwapPage({ user }) {
           </div>
           <div style={{ fontSize:12, color:T.textSub }}>{sw.requester_date} ⇄ {sw.target_date}</div>
           {sw.reason && <div style={{ fontSize:12, color:T.textDim, marginTop:6 }}>理由: {sw.reason}</div>}
-          {sw.status==='pending'&&tab===0 && <div style={{ display:"flex", gap:8, marginTop:10 }}><Btn size="sm" variant="danger" onClick={()=>handleApprove(sw.id,false)}>却下</Btn><Btn size="sm" variant="success" onClick={()=>handleApprove(sw.id,true)}>承認</Btn></div>}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
+            <div style={{ display:"flex", gap:8 }}>
+              {sw.status==='pending'&&tab===0 && <>
+                <Btn size="sm" variant="danger" onClick={()=>handleApprove(sw.id,false)}>却下</Btn>
+                <Btn size="sm" variant="success" onClick={()=>handleApprove(sw.id,true)}>承認</Btn>
+              </>}
+            </div>
+            {(sw.status==='approved'||sw.status==='rejected') && (
+              <button onClick={()=>handleDeleteSwap(sw.id)}
+                style={{ fontSize:11, color:T.textDim, background:"none", border:`1px solid ${T.border}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:FONT }}>
+                🗑️ 削除
+              </button>
+            )}
+          </div>
         </Card>
       ))}
     </div>
