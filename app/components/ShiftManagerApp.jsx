@@ -75,6 +75,9 @@ const DEMO_REQUESTS = [
 
 const _requestStatusCache = new Map();
 
+// セッション中の削除済みIDセット（ページ遷移後も復活しないように）
+const _deletedRequestIds = new Set();
+
 let _clinicIdCache = null;
 const getClinicId = async () => {
   if (_clinicIdCache) return _clinicIdCache;
@@ -720,14 +723,15 @@ function RequestPage({ user }) {
         reject_reason: _requestStatusCache.has(r.id) ? _requestStatusCache.get(r.id).reason : r.reject_reason,
       });
       const demoReqs = isManager
-        ? DEMO_REQUESTS.map(applyCache)
-        : DEMO_REQUESTS.filter(r => r.staff_id === user.id).slice(0, 6).map(applyCache);
+        ? DEMO_REQUESTS.filter(r => !_deletedRequestIds.has(r.id)).map(applyCache)
+        : DEMO_REQUESTS.filter(r => r.staff_id === user.id && !_deletedRequestIds.has(r.id)).slice(0, 6).map(applyCache);
       if (demoReqs.length === 0) {
-        setMyRequests([
+        const fallback = [
           { id:"r_demo1", request_date:"2026-05-03", preferred_shift:"off", priority:3, status: _requestStatusCache.get("r_demo1")?.status || "approved", reason:"家族の用事", staffName: user.name, created_at:"2026-04-10T09:00:00Z" },
           { id:"r_demo2", request_date:"2026-05-10", preferred_shift:"day", priority:2, status: _requestStatusCache.get("r_demo2")?.status || "pending", reason:"", staffName: user.name, created_at:"2026-04-10T10:30:00Z" },
           { id:"r_demo3", request_date:"2026-05-15", preferred_shift:"morning", priority:1, status: _requestStatusCache.get("r_demo3")?.status || "rejected", reason:"早起きが得意", staffName: user.name, created_at:"2026-04-09T14:00:00Z" },
-        ]);
+        ].filter(r => !_deletedRequestIds.has(r.id));
+        setMyRequests(fallback);
       } else { setMyRequests(demoReqs); }
       setReqLoading(false);
       return;
@@ -859,7 +863,7 @@ function RequestPage({ user }) {
                     const { error } = await supabase.from('shift_requests').delete().in('id', ids);
                     if(error) throw error;
                   }
-                  ids.forEach(id => _requestStatusCache.delete(id));
+                  ids.forEach(id => { _requestStatusCache.delete(id); _deletedRequestIds.add(id); });
                   setMyRequests(p=>p.filter(r=>!ids.includes(r.id)));
                   toast('一括削除しました', 'success');
                 } catch(e) { toast('削除に失敗しました: ' + e.message,'error'); }
@@ -919,6 +923,7 @@ function RequestPage({ user }) {
                               if(error) throw error;
                             }
                             _requestStatusCache.delete(r.id);
+                            _deletedRequestIds.add(r.id);
                             setMyRequests(p=>p.filter(x=>x.id!==r.id));
                             toast('削除しました','success');
                           } catch(e) { toast('削除に失敗しました: ' + e.message,'error'); }
