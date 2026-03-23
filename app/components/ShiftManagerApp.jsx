@@ -89,6 +89,20 @@ const _deletedRequestIds = (() => {
   };
 })();
 
+// 人員配置ルール（sessionStorage永続・全ページ共有）
+const _staffingRules = (() => {
+  const KEY = 'clinic_staffing_rules';
+  const DEFAULTS = { minDoctors:1, minNurses:2, maxConsecDays:5, minRestHours:11, offDaysPerMonth:8 };
+  const load = () => { try { return {...DEFAULTS, ...JSON.parse(sessionStorage.getItem(KEY)||'{}')}; } catch(e) { return {...DEFAULTS}; } };
+  const save = (r) => { try { sessionStorage.setItem(KEY, JSON.stringify(r)); } catch(e) {} };
+  let _r = null;
+  return {
+    get()       { if (!_r) _r = load(); return {..._r}; },
+    set(key,val){ if (!_r) _r = load(); _r[key] = val; save(_r); },
+    setAll(obj) { if (!_r) _r = load(); _r = {..._r,...obj}; save(_r); },
+  };
+})();
+
 // シフト交換の削除済みIDセット（sessionStorage永続）
 const _deletedSwapIds = (() => {
   const KEY = 'clinic_deleted_swap_ids';
@@ -1293,26 +1307,37 @@ function GeneratePage({ user, onNav }) {
       const { data: reqData } = await supabase.from('shift_requests').select('staff_id, request_date, preferred_shift').eq('target_month', targetMonth).eq('status', 'approved');
       const rows = [];
       const days = new Date(genYear, genMonth, 0).getDate();
+      const rules = _staffingRules.get();
       staffData.forEach((sp, idx) => {
         const staffRequests = reqData ? reqData.filter(r => r.staff_id === sp.id) : [];
+        // 設定の休日日数を使用
+        const targetOffDays = rules.offDaysPerMonth || 8;
         const offDays = new Set();
-        const targetOffDays = 8;
-        const interval = Math.floor(days / targetOffDays);
+        const interval = Math.max(1, Math.floor(days / targetOffDays));
         for (let i = 0; i < targetOffDays; i++) {
           const offDay = ((i * interval + idx * 3) % days) + 1;
           offDays.add(offDay);
         }
+        // 連続勤務チェック用カウンタ
+        let consecWorkDays = 0;
+        const maxConsec = rules.maxConsecDays || 5;
         for (let d = 1; d <= days; d++) {
           const dateStr = `${genYear}-${String(genMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const req = staffRequests.find(r => r.request_date === dateStr);
           let autoType;
           if (req) {
             autoType = req.preferred_shift;
-          } else if (offDays.has(d)) {
+          } else if (offDays.has(d) || consecWorkDays >= maxConsec) {
             autoType = 'off';
           } else {
             const workTypes = ['day','day','morning','late','day'];
             autoType = workTypes[(idx + d) % workTypes.length];
+          }
+          // 連続勤務カウント更新
+          if (autoType === 'off' || autoType === 'paid') {
+            consecWorkDays = 0;
+          } else {
+            consecWorkDays++;
           }
           rows.push({ clinic_id:clinicId, staff_id:sp.id, shift_date:dateStr, shift_type:autoType, status:'draft' });
         }
@@ -1372,11 +1397,19 @@ function GeneratePage({ user, onNav }) {
               </div>
             </Card>
             <Card>
-              <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⚙️ 生成条件</div>
-              {["医師を常時1名以上配置","看護師を常時2名以上配置","夜勤連続は最大2日まで","週休2日を確保","承認済み希望を優先反映","公平性を最適化"].map((r,i) => (
+              <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⚙️ 生成条件（設定ページで変更可能）</div>
+              {(()=>{ const r=_staffingRules.get(); return [
+                [`医師を常時${r.minDoctors}名以上配置`, true],
+                [`看護師を常時${r.minNurses}名以上配置`, true],
+                [`最大連続勤務${r.maxConsecDays}日まで`, true],
+                [`最低インターバル${r.minRestHours}時間確保`, true],
+                [`月${r.offDaysPerMonth}日休日を均等配置`, true],
+                ["承認済み希望を優先反映", true],
+                ["公平性を最適化", true],
+              ]; })().map(([label, on], i) => (
                 <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
-                  <span style={{ fontSize:13, color:T.textMid }}>{r}</span>
-                  <div style={{ width:38, height:22, borderRadius:11, background:T.teal, position:"relative" }}><div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:2, left:18, boxShadow:T.shadow }}/></div>
+                  <span style={{ fontSize:13, color:T.textMid }}>{label}</span>
+                  <div style={{ width:38, height:22, borderRadius:11, background:on?T.teal:T.border, position:"relative" }}><div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:2, left:on?18:2, boxShadow:T.shadow }}/></div>
                 </div>
               ))}
               <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${T.borderLight}` }}>
@@ -2707,7 +2740,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
   const [pushNotif, setPushNotif] = useState({ shifts:true, requests:true, exchange:true, reminders:false });
   const [notifCat, setNotifCat] = useState({ approval:true, rejection:true, change:true, swap:true, system:false });
   const [clinicInfo, setClinicInfo] = useState({ name:"丸岡内科小児科クリニック", address:"神戸市三宮", phone:"", email:"" });
-  const [staffingRules, setStaffingRules] = useState({ minDoctors:1, minNurses:2, maxConsecDays:5, minRestHours:11 });
+  const [staffingRules, setStaffingRules] = useState(() => _staffingRules.get());
 
   const Toggle = ({ val, onChange }) => (
     <div onClick={onChange} style={{width:42,height:24,borderRadius:12,background:val?T.blue:T.border,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
@@ -2762,13 +2795,13 @@ function SettingsPage({ user, onSwitch, onLogout }) {
     "人員配置ルール": (
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <p style={{fontSize:12,color:T.textSub,margin:"0 0 4px"}}>自動生成時に使用する人員配置ルールを設定します。</p>
-        {[["minDoctors","最低医師数（人/日）","人"],["minNurses","最低看護師数（人/日）","人"],["maxConsecDays","最大連続勤務日数","日"],["minRestHours","最低インターバル時間","時間"]].map(([key,label,unit])=>(
+        {[["minDoctors","最低医師数（人/日）","人"],["minNurses","最低看護師数（人/日）","人"],["maxConsecDays","最大連続勤務日数","日"],["minRestHours","最低インターバル時間","時間"],["offDaysPerMonth","月間休日日数","日"]].map(([key,label,unit])=>(
           <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:13}}>{label}</div>
-            <div style={{display:"flex",alignItems:"center",gap:6}}><input type="number" value={staffingRules[key]} onChange={e=>setStaffingRules(p=>({...p,[key]:parseInt(e.target.value)||0}))} style={{width:65,padding:"6px 8px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",fontFamily:FONT}}/><span style={{fontSize:12,color:T.textDim}}>{unit}</span></div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}><input type="number" value={staffingRules[key]} onChange={e=>{ const v=parseInt(e.target.value)||0; setStaffingRules(p=>({...p,[key]:v})); }} style={{width:65,padding:"6px 8px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",fontFamily:FONT}}/><span style={{fontSize:12,color:T.textDim}}>{unit}</span></div>
           </div>
         ))}
-        <Btn onClick={()=>toast('人員配置ルールを保存しました','success')}>保存する</Btn>
+        <Btn onClick={()=>{ _staffingRules.setAll(staffingRules); toast('人員配置ルールを保存しました','success'); }}>保存する</Btn>
       </div>
     ),
     "利用規約": (
@@ -2795,7 +2828,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
     ),
   };
 
-  const menuItems = ["プッシュ通知設定","通知カテゴリー",...(user.role==="admin"?["クリニック情報","シフトテンプレート","人員配置ルール"]:[]),"利用規約","プライバシーポリシー"];
+  const menuItems = ["プッシュ通知設定","通知カテゴリー",...(user.role==="admin"?["クリニック情報","シフトテンプレート"]:[]),"人員配置ルール","利用規約","プライバシーポリシー"];
   const icons = {"プッシュ通知設定":"🔔","通知カテゴリー":"🗂️","クリニック情報":"🏥","シフトテンプレート":"📋","人員配置ルール":"👥","利用規約":"📄","プライバシーポリシー":"🔒"};
 
   return (
