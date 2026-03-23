@@ -75,8 +75,19 @@ const DEMO_REQUESTS = [
 
 const _requestStatusCache = new Map();
 
-// セッション中の削除済みIDセット（ページ遷移後も復活しないように）
-const _deletedRequestIds = new Set();
+// sessionStorage バックアップ付き削除済みIDセット（ページ/コンポーネント再マウント後も永続）
+const _deletedRequestIds = (() => {
+  const KEY = 'clinic_deleted_req_ids';
+  const load = () => { try { return new Set(JSON.parse(sessionStorage.getItem(KEY)||'[]')); } catch(e) { return new Set(); } };
+  const save = (s) => { try { sessionStorage.setItem(KEY, JSON.stringify([...s])); } catch(e) {} };
+  let _s = null;
+  return {
+    get _set() { if (!_s) _s = load(); return _s; },
+    has(id)    { return this._set.has(id); },
+    add(id)    { this._set.add(id); save(this._set); },
+    delete(id) { this._set.delete(id); save(this._set); },
+  };
+})();
 
 let _clinicIdCache = null;
 const getClinicId = async () => {
@@ -741,7 +752,7 @@ function RequestPage({ user }) {
         let query = supabase.from('shift_requests').select('*, staff_profiles(last_name, first_name, position)').eq('target_month', `${year}-${String(month).padStart(2,'0')}`).order('request_date');
         if (!isManager) query = query.eq('target_staff_id', user.id);
         const { data } = await query;
-        setMyRequests((data || []).map(r => ({
+        setMyRequests((data || []).filter(r => !_deletedRequestIds.has(r.id)).map(r => ({
           ...r,
           staffName: r.staff_profiles ? r.staff_profiles.last_name + ' ' + r.staff_profiles.first_name : user.name,
           pos: r.staff_profiles?.position || 'nurse',
