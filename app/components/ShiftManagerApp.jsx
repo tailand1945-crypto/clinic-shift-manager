@@ -89,6 +89,20 @@ const _deletedRequestIds = (() => {
   };
 })();
 
+// シフト交換の削除済みIDセット（sessionStorage永続）
+const _deletedSwapIds = (() => {
+  const KEY = 'clinic_deleted_swap_ids';
+  const load = () => { try { return new Set(JSON.parse(sessionStorage.getItem(KEY)||'[]')); } catch(e) { return new Set(); } };
+  const save = (s) => { try { sessionStorage.setItem(KEY, JSON.stringify([...s])); } catch(e) {} };
+  let _s = null;
+  return {
+    get _set() { if (!_s) _s = load(); return _s; },
+    has(id)    { return this._set.has(id); },
+    add(id)    { this._set.add(id); save(this._set); },
+    delete(id) { this._set.delete(id); save(this._set); },
+  };
+})();
+
 let _clinicIdCache = null;
 const getClinicId = async () => {
   if (_clinicIdCache) return _clinicIdCache;
@@ -1665,7 +1679,7 @@ function SwapPage({ user }) {
       setStaffList(spData || []);
       const { data: exData } = await supabase.from('shift_exchanges').select('*').order('created_at', { ascending:false });
       if (exData) {
-        setSwaps(exData.map(ex => ({
+        setSwaps(exData.filter(ex => !_deletedSwapIds.has(ex.id)).map(ex => ({
           ...ex,
           requesterName: spData?.find(s=>s.id===ex.requester_id) ? spData.find(s=>s.id===ex.requester_id).last_name+' '+spData.find(s=>s.id===ex.requester_id).first_name : '不明',
           targetName: spData?.find(s=>s.id===ex.target_id) ? spData.find(s=>s.id===ex.target_id).last_name+' '+spData.find(s=>s.id===ex.target_id).first_name : '不明',
@@ -1695,6 +1709,7 @@ function SwapPage({ user }) {
       if (isSupabaseConfigured()) {
         await supabase.from('shift_exchanges').delete().eq('id', id);
       }
+      _deletedSwapIds.add(id);
       setSwaps(p => p.filter(s => s.id !== id));
       toast('削除しました', 'success');
     } catch(e) { toast('削除に失敗しました', 'error'); }
@@ -1768,6 +1783,7 @@ function SwapPage({ user }) {
             const ids = displayed.filter(s=>s.status==='approved'||s.status==='rejected').map(s=>s.id);
             try {
               if(isSupabaseConfigured()) await supabase.from('shift_exchanges').delete().in('id', ids);
+              ids.forEach(id => _deletedSwapIds.add(id));
               setSwaps(p=>p.filter(s=>!ids.includes(s.id)));
               toast('一括削除しました','success');
             } catch(e){ toast('削除に失敗しました','error'); }
