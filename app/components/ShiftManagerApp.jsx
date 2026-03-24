@@ -89,6 +89,28 @@ const _deletedRequestIds = (() => {
   };
 })();
 
+// シフトテンプレート（sessionStorage永続）
+const _shiftTemplates = (() => {
+  const KEY = 'clinic_shift_templates';
+  const DEFAULTS = [
+    { id:'t1', name:'標準週パターン', desc:'月〜金 日番・土曜隔週',
+      days:{ 0:'off', 1:'day', 2:'day', 3:'day', 4:'day', 5:'day', 6:'off' }, color: '#3B7DDD' },
+    { id:'t2', name:'夜勤週パターン', desc:'火・木・土 夜勤',
+      days:{ 0:'off', 1:'day', 2:'night', 3:'day', 4:'night', 5:'day', 6:'night' }, color: '#1B2A4A' },
+    { id:'t3', name:'パート週パターン', desc:'月・水・金 日番',
+      days:{ 0:'off', 1:'day', 2:'off', 3:'day', 4:'off', 5:'day', 6:'off' }, color: '#0FA68E' },
+  ];
+  const load = () => { try { const s=sessionStorage.getItem(KEY); return s ? JSON.parse(s) : [...DEFAULTS.map(d=>({...d}))]; } catch(e) { return [...DEFAULTS.map(d=>({...d}))]; } };
+  const save = (t) => { try { sessionStorage.setItem(KEY, JSON.stringify(t)); } catch(e) {} };
+  let _t = null;
+  return {
+    getAll()     { if (!_t) _t = load(); return [..._t]; },
+    save(tmpl)   { if (!_t) _t = load(); const idx=_t.findIndex(t=>t.id===tmpl.id); if(idx>=0) _t[idx]={..._t[idx],...tmpl}; else _t.push(tmpl); save(_t); },
+    delete(id)   { if (!_t) _t = load(); _t=_t.filter(t=>t.id!==id); save(_t); },
+    newId()      { return 't_'+Date.now(); },
+  };
+})();
+
 // 人員配置ルール（sessionStorage永続・全ページ共有）
 const _staffingRules = (() => {
   const KEY = 'clinic_staffing_rules';
@@ -2748,6 +2770,8 @@ function AttendancePage({ user }) {
 function SettingsPage({ user, onSwitch, onLogout }) {
   const [modalItem, setModalItem] = useState(null);
   const [pushNotif, setPushNotif] = useState({ shifts:true, requests:true, exchange:true, reminders:false });
+  const [templates, setTemplates] = useState(() => _shiftTemplates.getAll());
+  const [editingTmpl, setEditingTmpl] = useState(null); // null=非表示, {}=新規, {id,...}=編集中
   const [notifCat, setNotifCat] = useState({ approval:true, rejection:true, change:true, swap:true, system:false });
   const [clinicInfo, setClinicInfo] = useState({ name:"丸岡内科小児科クリニック", address:"神戸市三宮", phone:"", email:"" });
   const [staffingRules, setStaffingRules] = useState(() => _staffingRules.get());
@@ -2791,15 +2815,151 @@ function SettingsPage({ user, onSwitch, onLogout }) {
       </div>
     ),
     "シフトテンプレート": (
-      <div>
+      <div style={{display:"flex",flexDirection:"column",gap:0}}>
         <p style={{fontSize:12,color:T.textSub,marginBottom:12}}>よく使うシフトパターンをテンプレートとして登録できます。</p>
-        {[{name:"標準週パターン",desc:"月〜金 日番・土曜隔週"},{name:"夜勤週パターン",desc:"火・木・土 夜勤"},{name:"パート週パターン",desc:"月・水・金 日番"}].map((t,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`,marginBottom:8,background:T.surface}}>
-            <div><div style={{fontSize:13,fontWeight:600}}>{t.name}</div><div style={{fontSize:11,color:T.textDim}}>{t.desc}</div></div>
-            <button style={{fontSize:11,color:T.blue,background:"none",border:`1px solid ${T.blue}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:FONT}}>編集</button>
+
+        {/* ── テンプレート一覧 ── */}
+        {templates.map((t) => (
+          <div key={t.id} style={{border:`1px solid ${T.border}`,borderRadius:10,marginBottom:8,overflow:"hidden"}}>
+            {/* ヘッダー */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:T.surface}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{width:12,height:12,borderRadius:3,background:t.color||T.blue}}/>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700}}>{t.name}</div>
+                  <div style={{fontSize:11,color:T.textDim}}>{t.desc}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setEditingTmpl({...t})}
+                  style={{fontSize:11,color:T.blue,background:T.bluePale,border:`1px solid ${T.blueLight}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:FONT,fontWeight:600}}>
+                  ✏️ 編集
+                </button>
+                <button onClick={()=>{
+                  if(!window.confirm(`「${t.name}」を削除しますか？`)) return;
+                  _shiftTemplates.delete(t.id);
+                  setTemplates(_shiftTemplates.getAll());
+                  toast('削除しました','success');
+                }} style={{fontSize:11,color:T.coral,background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontFamily:FONT}}>
+                  🗑️
+                </button>
+              </div>
+            </div>
+            {/* 曜日プレビュー */}
+            <div style={{display:"flex",padding:"8px 12px",gap:4,background:"#fff"}}>
+              {['日','月','火','水','木','金','土'].map((d,i)=>{
+                const sh=SHIFTS[t.days?.[i]||'off'];
+                return(
+                  <div key={i} style={{flex:1,textAlign:"center"}}>
+                    <div style={{fontSize:9,color:i===0?T.coral:i===6?T.blue:T.textDim,marginBottom:2}}>{d}</div>
+                    <div style={{width:"100%",height:22,borderRadius:5,background:sh?.bg||T.surface,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:sh?.c||T.textDim}}>
+                      {sh?.l||'休'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ))}
-        <Btn variant="secondary" onClick={()=>toast('テンプレート追加機能は今後実装予定です','info')}>＋ テンプレート追加</Btn>
+
+        <Btn variant="secondary" icon="➕" onClick={()=>setEditingTmpl({
+          id: _shiftTemplates.newId(), name:'', desc:'', color:T.blue,
+          days:{0:'off',1:'day',2:'day',3:'day',4:'day',5:'day',6:'off'}
+        })}>テンプレート追加</Btn>
+
+        {/* ── 編集モーダル ── */}
+        {editingTmpl && (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+            onClick={()=>setEditingTmpl(null)}>
+            <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:480,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",maxHeight:"90vh",overflowY:"auto"}}
+              onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.navy}}>
+                  {templates.find(t=>t.id===editingTmpl.id) ? '✏️ テンプレート編集' : '➕ テンプレート追加'}
+                </div>
+                <button onClick={()=>setEditingTmpl(null)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:T.textDim}}>×</button>
+              </div>
+
+              {/* 名前 */}
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.textSub,marginBottom:4}}>テンプレート名</div>
+                <input value={editingTmpl.name||''} onChange={e=>setEditingTmpl(p=>({...p,name:e.target.value}))}
+                  placeholder="例：標準週パターン"
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,fontFamily:FONT,boxSizing:"border-box"}}/>
+              </div>
+
+              {/* 説明 */}
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.textSub,marginBottom:4}}>説明</div>
+                <input value={editingTmpl.desc||''} onChange={e=>setEditingTmpl(p=>({...p,desc:e.target.value}))}
+                  placeholder="例：月〜金 日番・土曜隔週"
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,fontFamily:FONT,boxSizing:"border-box"}}/>
+              </div>
+
+              {/* カラー */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.textSub,marginBottom:6}}>カラー</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {[T.blue,T.teal,T.coral,T.amber,T.purple,'#1B2A4A','#059669','#0891B2'].map(c=>(
+                    <div key={c} onClick={()=>setEditingTmpl(p=>({...p,color:c}))}
+                      style={{width:28,height:28,borderRadius:8,background:c,cursor:"pointer",border:editingTmpl.color===c?`3px solid ${T.text}`:'3px solid transparent',boxSizing:"border-box"}}/>
+                  ))}
+                </div>
+              </div>
+
+              {/* 曜日別シフト設定 */}
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.textSub,marginBottom:8}}>曜日別シフト</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+                  {['日','月','火','水','木','金','土'].map((d,i)=>(
+                    <div key={i} style={{textAlign:"center"}}>
+                      <div style={{fontSize:10,color:i===0?T.coral:i===6?T.blue:T.textDim,marginBottom:4,fontWeight:600}}>{d}</div>
+                      <select value={editingTmpl.days?.[i]||'off'}
+                        onChange={e=>setEditingTmpl(p=>({...p,days:{...p.days,[i]:e.target.value}}))}
+                        style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:10,fontFamily:FONT,background:SHIFTS[editingTmpl.days?.[i]||'off']?.bg,color:SHIFTS[editingTmpl.days?.[i]||'off']?.c,fontWeight:700,cursor:"pointer"}}>
+                        {Object.entries(SHIFTS).map(([k,s])=>(
+                          <option key={k} value={k}>{s.l} {s.f}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                {/* プレビュー */}
+                <div style={{marginTop:10,padding:"8px 12px",background:T.surface,borderRadius:8,display:"flex",gap:4}}>
+                  {['日','月','火','水','木','金','土'].map((d,i)=>{
+                    const sh=SHIFTS[editingTmpl.days?.[i]||'off'];
+                    return(
+                      <div key={i} style={{flex:1,textAlign:"center"}}>
+                        <div style={{fontSize:9,color:i===0?T.coral:i===6?T.blue:T.textDim}}>{d}</div>
+                        <div style={{height:20,borderRadius:4,background:sh?.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:sh?.c,marginTop:2}}>{sh?.l}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 保存・キャンセル */}
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setEditingTmpl(null)}
+                  style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",color:T.textMid,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
+                  キャンセル
+                </button>
+                <button
+                  disabled={!editingTmpl.name?.trim()}
+                  onClick={()=>{
+                    if(!editingTmpl.name?.trim()) return;
+                    _shiftTemplates.save(editingTmpl);
+                    setTemplates(_shiftTemplates.getAll());
+                    setEditingTmpl(null);
+                    toast('テンプレートを保存しました ✅','success');
+                  }}
+                  style={{flex:2,padding:"10px",borderRadius:8,border:"none",background:editingTmpl.name?.trim()?T.blue:"#ccc",color:"#fff",fontSize:13,fontWeight:700,cursor:editingTmpl.name?.trim()?"pointer":"not-allowed",fontFamily:FONT}}>
+                  💾 保存する
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     ),
     "人員配置ルール": (
