@@ -92,7 +92,11 @@ const _deletedRequestIds = (() => {
 // 人員配置ルール（sessionStorage永続・全ページ共有）
 const _staffingRules = (() => {
   const KEY = 'clinic_staffing_rules';
-  const DEFAULTS = { minDoctors:1, minNurses:2, maxConsecDays:5, minRestHours:11, offDaysPerMonth:8 };
+  const DEFAULTS = {
+    minDoctors:1, minNurses:2, minPt:0, minOt:0, minTrainer:0,
+    minLab:0, minAssistant:0, minClerk:1,
+    maxConsecDays:5, minRestHours:11, offDaysPerMonth:8
+  };
   const load = () => { try { return {...DEFAULTS, ...JSON.parse(sessionStorage.getItem(KEY)||'{}')}; } catch(e) { return {...DEFAULTS}; } };
   const save = (r) => { try { sessionStorage.setItem(KEY, JSON.stringify(r)); } catch(e) {} };
   let _r = null;
@@ -1398,15 +1402,21 @@ function GeneratePage({ user, onNav }) {
             </Card>
             <Card>
               <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⚙️ 生成条件（設定ページで変更可能）</div>
-              {(()=>{ const r=_staffingRules.get(); return [
+              {(()=>{ const r=_staffingRules.get(); const items=[
                 [`医師を常時${r.minDoctors}名以上配置`, true],
                 [`看護師を常時${r.minNurses}名以上配置`, true],
+                r.minPt>0       && [`PTを常時${r.minPt}名以上配置`, true],
+                r.minOt>0       && [`OTを常時${r.minOt}名以上配置`, true],
+                r.minTrainer>0  && [`スポーツトレーナーを常時${r.minTrainer}名以上配置`, true],
+                r.minLab>0      && [`検査技師を常時${r.minLab}名以上配置`, true],
+                r.minAssistant>0&& [`助手を常時${r.minAssistant}名以上配置`, true],
+                r.minClerk>0    && [`事務を常時${r.minClerk}名以上配置`, true],
                 [`最大連続勤務${r.maxConsecDays}日まで`, true],
                 [`最低インターバル${r.minRestHours}時間確保`, true],
                 [`月${r.offDaysPerMonth}日休日を均等配置`, true],
                 ["承認済み希望を優先反映", true],
                 ["公平性を最適化", true],
-              ]; })().map(([label, on], i) => (
+              ].filter(Boolean); return items; })().map(([label, on], i) => (
                 <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderTop:i>0?`1px solid ${T.borderLight}`:"none" }}>
                   <span style={{ fontSize:13, color:T.textMid }}>{label}</span>
                   <div style={{ width:38, height:22, borderRadius:11, background:on?T.teal:T.border, position:"relative" }}><div style={{ width:18, height:18, borderRadius:9, background:"#fff", position:"absolute", top:2, left:on?18:2, boxShadow:T.shadow }}/></div>
@@ -2793,15 +2803,57 @@ function SettingsPage({ user, onSwitch, onLogout }) {
       </div>
     ),
     "人員配置ルール": (
-      <div style={{display:"flex",flexDirection:"column",gap:14}}>
-        <p style={{fontSize:12,color:T.textSub,margin:"0 0 4px"}}>自動生成時に使用する人員配置ルールを設定します。</p>
-        {[["minDoctors","最低医師数（人/日）","人"],["minNurses","最低看護師数（人/日）","人"],["maxConsecDays","最大連続勤務日数","日"],["minRestHours","最低インターバル時間","時間"],["offDaysPerMonth","月間休日日数","日"]].map(([key,label,unit])=>(
-          <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontSize:13}}>{label}</div>
-            <div style={{display:"flex",alignItems:"center",gap:6}}><input type="number" value={staffingRules[key]} onChange={e=>{ const v=parseInt(e.target.value)||0; setStaffingRules(p=>({...p,[key]:v})); }} style={{width:65,padding:"6px 8px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",fontFamily:FONT}}/><span style={{fontSize:12,color:T.textDim}}>{unit}</span></div>
+      <div style={{display:"flex",flexDirection:"column",gap:12,maxHeight:420,overflowY:"auto",paddingRight:4}}>
+        <p style={{fontSize:12,color:T.textSub,margin:"0 0 2px"}}>自動生成時に使用する人員配置ルールを設定します。</p>
+
+        {/* ── 職種別 最低配置人数 ── */}
+        <div style={{fontSize:11,fontWeight:700,color:T.navy,padding:"6px 10px",background:T.blueSoft,borderRadius:8,marginTop:4}}>
+          👥 職種別 最低配置人数（人/日）
+        </div>
+        {[
+          ["minDoctors",  "医師（全科）",        "#E8625C","#FDECEB"],
+          ["minNurses",   "看護師",               "#3B7DDD","#E8F0FE"],
+          ["minPt",       "PT（理学療法士）",     "#7C3AED","#EDE9FE"],
+          ["minOt",       "OT（作業療法士）",     "#6D28D9","#EDE9FE"],
+          ["minTrainer",  "スポーツトレーナー",   "#059669","#D1FAE5"],
+          ["minLab",      "検査技師",             "#0891B2","#CFFAFE"],
+          ["minAssistant","助手",                  "#0FA68E","#E6F9F5"],
+          ["minClerk",    "事務",                  "#E6A817","#FFF8E1"],
+        ].map(([key,label,c,bg])=>(
+          <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:bg,borderRadius:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:c,minWidth:120}}>{label}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <input type="number" min="0" max="99" value={staffingRules[key]??0}
+                onChange={e=>{ const v=parseInt(e.target.value)||0; setStaffingRules(p=>({...p,[key]:v})); }}
+                style={{width:55,padding:"4px 8px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",fontFamily:FONT}}/>
+              <span style={{fontSize:12,color:c,fontWeight:600}}>人</span>
+            </div>
           </div>
         ))}
-        <Btn onClick={()=>{ _staffingRules.setAll(staffingRules); toast('人員配置ルールを保存しました','success'); }}>保存する</Btn>
+
+        {/* ── 勤務条件 ── */}
+        <div style={{fontSize:11,fontWeight:700,color:T.navy,padding:"6px 10px",background:T.amberSoft,borderRadius:8,marginTop:4}}>
+          ⏱️ 勤務条件
+        </div>
+        {[
+          ["maxConsecDays",  "最大連続勤務日数",    "日"],
+          ["minRestHours",   "最低インターバル時間", "時間"],
+          ["offDaysPerMonth","月間休日日数",         "日"],
+        ].map(([key,label,unit])=>(
+          <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:T.amberSoft,borderRadius:8}}>
+            <div style={{fontSize:13,color:T.text}}>{label}</div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <input type="number" min="0" value={staffingRules[key]??0}
+                onChange={e=>{ const v=parseInt(e.target.value)||0; setStaffingRules(p=>({...p,[key]:v})); }}
+                style={{width:55,padding:"4px 8px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",fontFamily:FONT}}/>
+              <span style={{fontSize:12,color:T.amber,fontWeight:600}}>{unit}</span>
+            </div>
+          </div>
+        ))}
+
+        <Btn onClick={()=>{ _staffingRules.setAll(staffingRules); toast('人員配置ルールを保存しました ✅','success'); }} style={{marginTop:4}}>保存する</Btn>
       </div>
     ),
     "利用規約": (
