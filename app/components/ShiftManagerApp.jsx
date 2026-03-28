@@ -1094,7 +1094,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
       } catch(err) { console.error('DB更新エラー:', err); }
     }
     setProcessing(null); setRejectModal(null); setRejectReason("");
-    if (action !== 'pending') setFilterStatus('all');
+    // フィルタは維持（ユーザーの表示を崩さない）
   };
 
   const handleBulkApprove = async () => {
@@ -1104,7 +1104,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
         await handleAction(id, 'approved');
       }
       setBulkSelected(new Set());
-      setFilterStatus('all');
+      // フィルタは維持
     } finally { setBulkProcessing(false); }
   };
 
