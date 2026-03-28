@@ -49,6 +49,23 @@ const POSITIONS = {
 const ROLES = { admin:"管理者", manager:"マネージャー", staff:"スタッフ" };
 const DOW = ["日","月","火","水","木","金","土"];
 
+// モバイル判定フック（各コンポーネントで使用）
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return isMobile;
+}
+
+// モバイル対応パディング
+const mp = (mobile, desktop) => mobile; // 使用側で isMobile ? mp(...) : mp(...)
+
 const STAFF_DATA = [
   { id:"s1", name:"田中 美咲",   pos:"doctor",    role:"admin",   night:true,  email:"tanaka@clinic.com" },
   { id:"s2", name:"佐藤 健一",   pos:"nurse",     role:"manager", night:true,  email:"sato@clinic.com" },
@@ -451,17 +468,17 @@ function Sidebar({ user, active, onNav, onLogout, collapsed, onToggle, pendingCo
   );
 }
 
-function MobileNav({ user, active, onNav, pendingCount }) {
+function MobileNav({ user, active, onNav, pendingCount, notifCount=0 }) {
   const isManager = user.role === "admin" || user.role === "manager";
   const items = [
     { id:"home",    icon:"🏠", label:"ホーム" },
     { id:"shifts",  icon:"📅", label:"シフト" },
     { id:"request", icon:"📝", label:"希望" },
     { id:"approval",icon:"✅", label:"承認", badge: isManager ? pendingCount : 0 },
-    { id:"more",    icon:"☰",  label:"メニュー" },
+    { id:"more",    icon:"☰",  label:"メニュー", badge: notifCount },
   ];
   return (
-    <nav style={{ display:"flex", background:T.white, borderTop:`1px solid ${T.border}`, paddingBottom:"env(safe-area-inset-bottom, 8px)", boxShadow:"0 -2px 12px rgba(0,0,0,0.08)" }}>
+    <nav style={{ display:"flex", background:T.white, borderTop:`1px solid ${T.border}`, paddingBottom:"env(safe-area-inset-bottom, 12px)", boxShadow:"0 -2px 12px rgba(0,0,0,0.08)", position:"relative", zIndex:100 }}>
       {items.map(it => (
         <button key={it.id} onClick={() => onNav(it.id)} style={{ flex:1, padding:"10px 4px 6px", border:"none", background:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, color:active===it.id?T.blue:T.textDim, fontFamily:FONT, position:"relative" }}>
           <span style={{ fontSize:20, lineHeight:1, position:"relative" }}>
@@ -479,12 +496,13 @@ function MobileNav({ user, active, onNav, pendingCount }) {
 function MoreMenuPage({ user, onNav, onLogout }) {
   const isManager = user.role === "admin" || user.role === "manager";
   const items = [
-    { id:"approval", icon:"✅", label:"申請承認",   sub:"シフト希望の審査・承認", show: isManager },
-    { id:"generate", icon:"⚡", label:"自動生成",   sub:"シフトを自動生成",        show: isManager },
-    { id:"staff",    icon:"👥", label:"スタッフ管理", sub:"メンバー一覧・追加",     show: true },
-    { id:"swap",     icon:"🔄", label:"シフト交換",  sub:"交換リクエスト管理",      show: true },
-    { id:"notif",    icon:"🔔", label:"通知",        sub:"お知らせを確認",          show: true },
-    { id:"settings", icon:"⚙️", label:"設定",        sub:"アカウント設定",          show: true },
+    { id:"approval",   icon:"✅", label:"申請承認",   sub:"シフト希望の審査・承認", show: isManager },
+    { id:"attendance", icon:"⏱️", label:"勤怠管理",   sub:"出退勤・給与計算",        show: true },
+    { id:"generate",   icon:"⚡", label:"自動生成",   sub:"シフトを自動生成",        show: isManager },
+    { id:"staff",      icon:"👥", label:"スタッフ管理", sub:"メンバー一覧・追加",   show: true },
+    { id:"swap",       icon:"🔄", label:"シフト交換",  sub:"交換リクエスト管理",    show: true },
+    { id:"notif",      icon:"🔔", label:"通知",        sub:"お知らせを確認",        show: true },
+    { id:"settings",   icon:"⚙️", label:"設定",        sub:"アカウント設定",        show: true },
   ].filter(i => i.show);
   return (
     <div style={{ padding:20 }}>
@@ -510,6 +528,7 @@ function MoreMenuPage({ user, onNav, onLogout }) {
 }
 
 function HomePage({ user, onNav }) {
+  const isMobile = useIsMobile();
   const today = new Date();
   const d = today.getDate(), m = today.getMonth()+1, year = today.getFullYear();
   const [todayShiftType, setTodayShiftType] = useState('off');
@@ -600,7 +619,7 @@ function HomePage({ user, onNav }) {
 
   const todayShift = SHIFTS[todayShiftType] || SHIFTS['off'];
   return (
-    <div style={{ padding:24, maxWidth:1000 }}>
+    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth:1000 }}>
       <div style={{ marginBottom:24 }}>
         <h1 style={{ fontSize:24, fontWeight:800, color:T.text, margin:"0 0 4px" }}>おはようございます、{user.name.split(" ")[0]}さん</h1>
         <p style={{ fontSize:13, color:T.textSub, margin:0 }}>{year}年{m}月{d}日（{DOW[today.getDay()]}）</p>
@@ -620,7 +639,7 @@ function HomePage({ user, onNav }) {
           <span style={{ fontSize:12, color:"rgba(255,255,255,0.6)" }}>🔔 未読通知: {unreadNotifs}件</span>
         </div>
       </Card>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:12, marginBottom:20 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap: isMobile ? 8 : 12, marginBottom: isMobile ? 12 : 20 }}>
         <StatCard icon="📅" value={`${stats.workDays}日`} label="今月の出勤" color={T.blue} />
         <StatCard icon="🌙" value={`${stats.nightCount}回`} label="夜勤回数" color={T.purple} />
         <StatCard icon="🏖️" value={`${stats.paidLeft}日`} label="有給残日数" color={T.teal} />
@@ -760,6 +779,7 @@ function ShiftTablePage({ user, year=2026, month=4 }) {
 // REQUEST PAGE
 // ─────────────────────────────────────────────
 function RequestPage({ user }) {
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
   const [sel, setSel] = useState({});
   const [pri, setPri] = useState({});
@@ -1013,6 +1033,7 @@ function RequestPage({ user }) {
 // APPROVAL PAGE
 // ─────────────────────────────────────────────
 function ApprovalPage({ user, onPendingCountChange }) {
+  const isMobile = useIsMobile();
   const isManager = user.role === "admin" || user.role === "manager";
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1164,7 +1185,7 @@ function ApprovalPage({ user, onPendingCountChange }) {
         )}
       </div>
 
-      <div style={{ flex:1, overflow:"auto", padding:16 }}>
+      <div style={{ flex:1, overflow:"auto", padding: isMobile ? 8 : 16 }}>
         {loading ? <div style={{ textAlign:'center', padding:40, color:T.textSub }}>読み込み中...</div> :
          filtered.length === 0 ? <Empty icon="✅" title={filterStatus==='pending'?"承認待ちの申請はありません":"申請はありません"} sub="すべての申請が処理済みです" /> : (
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -1298,6 +1319,7 @@ function GeneratePage({ user, onNav }) {
   const now = new Date();
   const defaultYear = now.getMonth() === 11 ? now.getFullYear()+1 : now.getFullYear();
   const defaultMonth = now.getMonth() === 11 ? 1 : now.getMonth()+2;
+  const isMobile = useIsMobile();
   const [genYear, setGenYear] = useState(defaultYear);
   const [genMonth, setGenMonth] = useState(defaultMonth);
   // 設定ページの値をReact stateで管理（マウント時に最新を読む）
@@ -1512,6 +1534,7 @@ function GeneratePage({ user, onNav }) {
 // STAFF PAGE
 // ─────────────────────────────────────────────
 function StaffPage({ user }) {
+  const isMobile = useIsMobile();
   const [search, setSearch] = useState("");
   const [filterPos, setFilterPos] = useState(null);
   const [staffList, setStaffList] = useState([]);
@@ -1608,7 +1631,7 @@ function StaffPage({ user }) {
   const selSt   = { width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:13, marginTop:4 };
 
   return (
-    <div style={{ padding:20, maxWidth:1000 }}>
+    <div style={{ padding: isMobile ? 12 : 20, maxWidth:1000 }}>
       {editTarget && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
           onClick={()=>setEditTarget(null)}>
@@ -1731,6 +1754,7 @@ function StaffPage({ user }) {
 // SWAP PAGE（一括削除ボタン追加済み）
 // ─────────────────────────────────────────────
 function SwapPage({ user }) {
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
   const [swaps, setSwaps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1819,9 +1843,9 @@ function SwapPage({ user }) {
   const statusBg = s => s==='pending'?T.amberSoft:s==='approved'?T.tealSoft:T.coralSoft;
 
   return (
-    <div style={{ padding:20, maxWidth:700 }}>
+    <div style={{ padding: isMobile ? 12 : 20, maxWidth:700 }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
-        <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>🔄 シフト交換</h2>
+        <h2 style={{ fontSize: isMobile ? 16 : 18, fontWeight:800, margin:0 }}>🔄 シフト交換</h2>
         <div style={{ flex:1 }}/>
         <Btn variant="primary" size="sm" icon="➕" onClick={() => setShowForm(p=>!p)}>交換リクエスト</Btn>
       </div>
@@ -1902,6 +1926,7 @@ function SwapPage({ user }) {
 // NOTIF PAGE
 // ─────────────────────────────────────────────
 function NotifPage({ user, onUnreadCountChange }) {
+  const isMobile = useIsMobile();
   const isManager = user.role === 'admin' || user.role === 'manager';
   const today = new Date();
 
@@ -2010,9 +2035,9 @@ function NotifPage({ user, onUnreadCountChange }) {
   const ICON_OPTS = ['📢','📅','✅','❌','🔄','⚠️','⚙️','🎉','💰','📋'];
 
   return (
-    <div style={{ padding:20, maxWidth:700 }}>
+    <div style={{ padding: isMobile ? 12 : 20, maxWidth:700 }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, flexWrap:'wrap' }}>
-        <h2 style={{ fontSize:18, fontWeight:800, margin:0 }}>🔔 通知</h2>
+        <h2 style={{ fontSize: isMobile ? 16 : 18, fontWeight:800, margin:0 }}>🔔 通知</h2>
         {unreadCount > 0 && (
           <span style={{ fontSize:11, fontWeight:700, background:T.blue, color:'#fff', padding:'2px 8px', borderRadius:10 }}>{unreadCount}</span>
         )}
@@ -2295,6 +2320,7 @@ function calcDeductions(grossPay, age, opts = {}) {
 // ATTENDANCE PAGE
 // ─────────────────────────────────────────────
 function AttendancePage({ user }) {
+  const isMobile = useIsMobile();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -2516,7 +2542,7 @@ function AttendancePage({ user }) {
   const IS=(w)=>({width:w,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right",background:"#fff"});
 
   return (
-    <div style={{padding:20,maxWidth:1000}}>
+    <div style={{padding: isMobile ? 10 : 20, maxWidth:1000}}>
       {showPayslip&&<PayslipModal data={payslipTarget} onClose={()=>setShowPayslip(false)}/>}
 
       {editRecord&&(
@@ -2772,6 +2798,7 @@ function AttendancePage({ user }) {
 // SETTINGS PAGE
 // ─────────────────────────────────────────────
 function SettingsPage({ user, onSwitch, onLogout }) {
+  const isMobile = useIsMobile();
   const [modalItem, setModalItem] = useState(null);
   const [pushNotif, setPushNotif] = useState({ shifts:true, requests:true, exchange:true, reminders:false });
   const [templates, setTemplates] = useState(() => _shiftTemplates.getAll());
@@ -3050,7 +3077,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
   const icons = {"プッシュ通知設定":"🔔","通知カテゴリー":"🗂️","クリニック情報":"🏥","シフトテンプレート":"📋","人員配置ルール":"👥","利用規約":"📄","プライバシーポリシー":"🔒"};
 
   return (
-    <div style={{padding:20,maxWidth:700}}>
+    <div style={{padding: isMobile ? 12 : 20, maxWidth:700}}>
       {modalItem&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setModalItem(null)}>
           <div style={{background:"white",borderRadius:16,padding:24,width:"100%",maxWidth:480,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
@@ -3201,13 +3228,21 @@ export default function ShiftManagerWebApp() {
         {isMobile&&(
           <div style={{padding:"10px 16px",background:T.navy,display:"flex",alignItems:"center",gap:10,paddingTop:"max(10px,env(safe-area-inset-top))"}}>
             <div style={{width:32,height:32,borderRadius:8,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📋</div>
-            <div style={{flex:1}}><div style={{fontSize:14,fontWeight:700,color:"#fff"}}>Shift Manager</div><div style={{fontSize:10,color:"rgba(255,255,255,0.6)"}}>丸岡内科小児科クリニック</div></div>
-            <button onClick={()=>setPage("notif")} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,padding:4,position:"relative"}}>🔔</button>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>
+                {{"home":"ホーム","shifts":"シフト表","request":"希望提出","approval":"申請承認","attendance":"勤怠管理","generate":"自動生成","staff":"スタッフ","swap":"シフト交換","notif":"通知","settings":"設定","more":"メニュー"}[page]||"Shift Manager"}
+              </div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.6)"}}>丸岡内科小児科クリニック</div>
+            </div>
+            <button onClick={()=>setPage("notif")} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,padding:4,position:"relative"}}>
+            🔔
+            {unreadNotifCount>0&&<span style={{position:"absolute",top:0,right:0,width:16,height:16,borderRadius:8,background:T.coral,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{unreadNotifCount>9?'9+':unreadNotifCount}</span>}
+          </button>
             <div style={{width:30,height:30,borderRadius:10,background:POSITIONS[user.pos]?.bg||T.surface,color:POSITIONS[user.pos]?.c||T.text,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700}}>{user.name[0]}</div>
           </div>
         )}
         <div style={{flex:1,overflow:"auto"}}>{renderPage()}</div>
-        {isMobile&&<MobileNav user={user} active={page} onNav={setPage} pendingCount={pendingApprovalCount}/>}
+        {isMobile&&<MobileNav user={user} active={page} onNav={setPage} pendingCount={pendingApprovalCount} notifCount={unreadNotifCount}/>}
       </div>
     </div>
   );
