@@ -123,9 +123,9 @@ const _staffingRules = (() => {
   const save = (r) => { try { sessionStorage.setItem(KEY, JSON.stringify(r)); } catch(e) {} };
   let _r = null;
   return {
-    get()       { if (!_r) _r = load(); return {..._r}; },
-    set(key,val){ if (!_r) _r = load(); _r[key] = val; save(_r); },
-    setAll(obj) { if (!_r) _r = load(); _r = {..._r,...obj}; save(_r); },
+    get()       { _r = load(); return {..._r}; },          // 毎回sessionStorageから読む
+    set(key,val){ _r = load(); _r[key] = val; save(_r); },
+    setAll(obj) { _r = load(); _r = {..._r,...obj}; save(_r); },
   };
 })();
 
@@ -1300,6 +1300,10 @@ function GeneratePage({ user, onNav }) {
   const defaultMonth = now.getMonth() === 11 ? 1 : now.getMonth()+2;
   const [genYear, setGenYear] = useState(defaultYear);
   const [genMonth, setGenMonth] = useState(defaultMonth);
+  // 設定ページの値をReact stateで管理（マウント時に最新を読む）
+  const [rules, setRules] = useState(() => _staffingRules.get());
+  // ページが表示されるたびに最新の設定を取得
+  useEffect(() => { setRules(_staffingRules.get()); }, []);
 
   const startGen = async () => {
     setStep(1); setProgress(0);
@@ -1333,7 +1337,7 @@ function GeneratePage({ user, onNav }) {
       const { data: reqData } = await supabase.from('shift_requests').select('staff_id, request_date, preferred_shift').eq('target_month', targetMonth).eq('status', 'approved');
       const rows = [];
       const days = new Date(genYear, genMonth, 0).getDate();
-      const rules = _staffingRules.get();
+      const rules = _staffingRules.get(); // 常に最新を取得
       staffData.forEach((sp, idx) => {
         const staffRequests = reqData ? reqData.filter(r => r.staff_id === sp.id) : [];
         // 設定の休日日数を使用
@@ -1424,15 +1428,15 @@ function GeneratePage({ user, onNav }) {
             </Card>
             <Card>
               <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⚙️ 生成条件（設定ページで変更可能）</div>
-              {(()=>{ const r=_staffingRules.get(); const items=[
+              {(()=>{ const r=rules; const items=[
                 [`医師を常時${r.minDoctors}名以上配置`, true],
                 [`看護師を常時${r.minNurses}名以上配置`, true],
-                r.minPt>0       && [`PTを常時${r.minPt}名以上配置`, true],
-                r.minOt>0       && [`OTを常時${r.minOt}名以上配置`, true],
-                r.minTrainer>0  && [`スポーツトレーナーを常時${r.minTrainer}名以上配置`, true],
-                r.minLab>0      && [`検査技師を常時${r.minLab}名以上配置`, true],
-                r.minAssistant>0&& [`助手を常時${r.minAssistant}名以上配置`, true],
-                r.minClerk>0    && [`事務を常時${r.minClerk}名以上配置`, true],
+                r.minPt>0       ? [`PTを常時${r.minPt}名以上配置`, true] : null,
+                r.minOt>0       ? [`OTを常時${r.minOt}名以上配置`, true] : null,
+                r.minTrainer>0  ? [`スポーツトレーナーを常時${r.minTrainer}名以上配置`, true] : null,
+                r.minLab>0      ? [`検査技師を常時${r.minLab}名以上配置`, true] : null,
+                r.minAssistant>0? [`助手を常時${r.minAssistant}名以上配置`, true] : null,
+                r.minClerk>0    ? [`事務を常時${r.minClerk}名以上配置`, true] : null,
                 [`最大連続勤務${r.maxConsecDays}日まで`, true],
                 [`最低インターバル${r.minRestHours}時間確保`, true],
                 [`月${r.offDaysPerMonth}日休日を均等配置`, true],
@@ -2775,6 +2779,8 @@ function SettingsPage({ user, onSwitch, onLogout }) {
   const [notifCat, setNotifCat] = useState({ approval:true, rejection:true, change:true, swap:true, system:false });
   const [clinicInfo, setClinicInfo] = useState({ name:"丸岡内科小児科クリニック", address:"神戸市三宮", phone:"", email:"" });
   const [staffingRules, setStaffingRules] = useState(() => _staffingRules.get());
+  // 値が変わるたびに自動保存（保存ボタン不要）
+  useEffect(() => { _staffingRules.setAll(staffingRules); }, [staffingRules]);
 
   const Toggle = ({ val, onChange }) => (
     <div onClick={onChange} style={{width:42,height:24,borderRadius:12,background:val?T.blue:T.border,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
@@ -3013,7 +3019,7 @@ function SettingsPage({ user, onSwitch, onLogout }) {
           </div>
         ))}
 
-        <Btn onClick={()=>{ _staffingRules.setAll(staffingRules); toast('人員配置ルールを保存しました ✅','success'); }} style={{marginTop:4}}>保存する</Btn>
+        <Btn onClick={()=>{ _staffingRules.setAll(staffingRules); toast('人員配置ルールを保存しました ✅','success'); }} style={{marginTop:4}} variant="success">✅ 保存する（自動保存も有効）</Btn>
       </div>
     ),
     "利用規約": (
