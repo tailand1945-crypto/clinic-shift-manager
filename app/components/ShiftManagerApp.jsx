@@ -51,20 +51,16 @@ const DOW = ["日","月","火","水","木","金","土"];
 
 // モバイル判定フック（各コンポーネントで使用）
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 768 : false
-  );
+  const [isMobile, setIsMobile] = useState(false); // SSR safe: false on server
   useEffect(() => {
+    // クライアントサイドのみで実行（SSR対応）
     const check = () => setIsMobile(window.innerWidth < 768);
-    check();
+    check(); // 初回チェック
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
   return isMobile;
 }
-
-// モバイル対応パディング
-const mp = (mobile, desktop) => mobile; // 使用側で isMobile ? mp(...) : mp(...)
 
 const STAFF_DATA = [
   { id:"s1", name:"田中 美咲",   pos:"doctor",    role:"admin",   night:true,  email:"tanaka@clinic.com" },
@@ -2806,8 +2802,12 @@ function SettingsPage({ user, onSwitch, onLogout }) {
   const [notifCat, setNotifCat] = useState({ approval:true, rejection:true, change:true, swap:true, system:false });
   const [clinicInfo, setClinicInfo] = useState({ name:"丸岡内科小児科クリニック", address:"神戸市三宮", phone:"", email:"" });
   const [staffingRules, setStaffingRules] = useState(() => _staffingRules.get());
-  // 値が変わるたびに自動保存（保存ボタン不要）
-  useEffect(() => { _staffingRules.setAll(staffingRules); }, [staffingRules]);
+  // 値が変わるたびに自動保存（初回マウント時はスキップ）
+  const _isFirstRenderSettings = useRef(true);
+  useEffect(() => {
+    if (_isFirstRenderSettings.current) { _isFirstRenderSettings.current = false; return; }
+    _staffingRules.setAll(staffingRules);
+  }, [staffingRules]);
 
   const Toggle = ({ val, onChange }) => (
     <div onClick={onChange} style={{width:42,height:24,borderRadius:12,background:val?T.blue:T.border,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
